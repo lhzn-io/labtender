@@ -32,6 +32,7 @@
   .top .where { margin-left: auto; color: var(--muted); font: 10px var(--mono); white-space: nowrap; }
   .sub { color: var(--muted); font: 10px/1.5 var(--mono); margin: 2px 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .hsub { color: var(--muted); font: 10px/1.6 var(--mono); margin-top: 3px; }
+  .hsub.late { color: var(--warn); }
   .hold { color: var(--warn); font-size: 12px; margin: 0 0 4px; }
   .chart { position: relative; margin-top: 10px; }
   .chart svg { width: 100%; height: 40px; display: block; overflow: visible; }
@@ -145,6 +146,8 @@ function hostCard(h, now) {
     h.lifecycle !== "static" && h.expires_at ? `expires in ${dur(h.expires_at - now)}` : null].filter(Boolean).join(" · ");
   const roam = h.roaming ? ` <span class="badge roam" title="Reached at ${esc(info.reached_at)}, through ${esc(h.roaming)}">roaming · ${esc(h.roaming)}</span>` : "";
   const errors = [h.last_error, ...(h.probe_errors || [])].filter(Boolean).map((e) => `<div class="err">${esc(e)}</div>`).join("");
+  const files = (h.file_checks || []).map((f) => `<div class="hsub${f.late ? " late" : ""}" title="${esc(f.path)}, late after ${f.max_h} h">${esc(f.name)} ${
+    f.age_s == null ? (f.seen ? "missing" : "not read yet") : `${dur(f.age_s)} ago`}${f.late && f.seen ? " · late" : ""}</div>`).join("");
   const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
   const onCard = new Set((h.gpus || []).map((g) => g.index));
   const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
@@ -160,7 +163,7 @@ function hostCard(h, now) {
   return `<div class="hostcard">
     <div class="top"><span class="dot ${h.online ? "on" : ""}"></span><b>${esc(h.name)}</b>${roam}<span class="where">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, ${h.probe_ms} ms` : ""}</span></div>
     <div class="hsub" title="${esc(info.cpu_model || "")}">${esc(facts)}</div>
-    ${servicesHtml(h, now)}${errors}
+    ${servicesHtml(h, now)}${files}${errors}
     ${h.host_ledger ? ledgerHtml(h.host_ledger, now) : ""}
     ${unplaced ? `<ul class="procs">${unplaced}</ul>` : ""}
     ${live.map((r) => runHtml(r, now)).join("")}${earlier}
@@ -213,6 +216,7 @@ const shownLive = (r, now) => r.state === "running" ||
 // stale run still in view.
 const needsLook = (h, now) => !h.online || h.last_error || (h.probe_errors || []).length ||
   Object.values(h.service_health || {}).some((c) => !c.ok) ||
+  (h.file_checks || []).some((f) => f.late && f.seen) ||
   (h.runs || []).some((r) => r.state === "stale" && shownLive(r, now));
 
 // GPUs or Hosts, from the link (#gpus, #hosts), else the last one chosen here, else GPUs.

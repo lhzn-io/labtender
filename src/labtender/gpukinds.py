@@ -20,6 +20,7 @@ BANDWIDTH_GBS = {
     # GeForce, desktop
     "rtx 5090": 1792,
     "rtx 5080": 960,
+    "rtx 5080 laptop": 896,
     "rtx 5070 ti": 896,
     "rtx 5070": 672,
     "rtx 4090": 1008,

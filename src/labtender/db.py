@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS host (
     services    TEXT NOT NULL DEFAULT '{}',      -- {name: url}, e.g. a dashboard on the host
     health      TEXT NOT NULL DEFAULT '{}',      -- {service name: path to GET}, optional
     fallbacks   TEXT NOT NULL DEFAULT '{}',      -- {service name: [address, ...]}, tried in order
+    files       TEXT NOT NULL DEFAULT '{}',      -- {name: {path, max_h}}: files whose age to show
     run_link    TEXT,                            -- template for links from each run
     added_at    REAL NOT NULL,
     last_seen   REAL,
@@ -114,6 +115,7 @@ MIGRATIONS = (
     ("host", "health", "TEXT NOT NULL DEFAULT '{}'"),
     ("host", "fallbacks", "TEXT NOT NULL DEFAULT '{}'"),
     ("service_health", "base", "TEXT"),
+    ("host", "files", "TEXT NOT NULL DEFAULT '{}'"),
     ("gpu_sample", "uuid", "TEXT"),
     ("card", "hold", "TEXT"),  # why it is held back from agents; NULL when offered
     ("card", "bandwidth_gbs", "REAL"),  # set by a person, for a model the table lacks
@@ -146,6 +148,29 @@ def check_health(health: dict, services: dict) -> dict:
         if path and name not in services:
             raise ValueError(f"no service {name} on the host; add it with --service first")
     return health
+
+
+def check_files(files: dict) -> dict:
+    """{name: "PATH" or "PATH@HOURS"} as {name: {path, max_h}}; an empty value removes it.
+
+    The probe reports each file's age; past max_h (26 h unless given) the board says it is late.
+    """
+    out: dict = {}
+    for name, spec in files.items():
+        if not SERVICE_NAME.match(name):
+            raise ValueError(f"file check name {name!r}: lower case letters, digits, - and _")
+        if not spec:
+            out[name] = None
+            continue
+        path, _, hours = str(spec).rpartition("@") if "@" in str(spec) else (str(spec), "", "")
+        try:
+            max_h = float(hours) if hours else 26.0
+        except ValueError:
+            raise ValueError(f"{spec!r}: use PATH@HOURS, for example ~/backups/last@26") from None
+        if not path or not 0 < max_h <= 24 * 30:
+            raise ValueError(f"{spec!r}: a path, and hours between 0 and 720")
+        out[name] = {"path": path, "max_h": max_h}
+    return out
 
 
 def check_fallbacks(fallbacks: dict, services: dict) -> dict:
@@ -288,6 +313,7 @@ class Store:
         transport: str | None = None,
         health: dict | None = None,
         fallbacks: dict | None = None,
+        files: dict | None = None,
     ) -> dict:
         """Change a host's interval, accepted tiers, transport, ssh target, services, health
         paths, fallback addresses, run link or labels.
@@ -352,6 +378,18 @@ class Store:
                 changes["fallbacks"] = json.dumps(merged_fallbacks)
         if run_link is not None:
             changes["run_link"] = run_link or None
+        merged_files = None
+        if files is not None:
+            current = self.host(name)
+            if current is None:
+                raise ValueError(f"no host {name}")
+            merged_files = dict(current["files"])
+            for k, v in check_files(files).items():
+                if v:
+                    merged_files[k] = v
+                else:
+                    merged_files.pop(k, None)
+            changes["files"] = json.dumps(merged_files)
         merged_labels = None
         if labels is not None:
             current = self.host(name)
@@ -384,6 +422,8 @@ class Store:
                     if k == "fallbacks"
                     else merged_labels
                     if k == "labels"
+                    else merged_files
+                    if k == "files"
                     else v
                     for k, v in changes.items()
                 },
@@ -823,4 +863,5 @@ def _host(r: sqlite3.Row) -> dict:
     d["services"] = json.loads(d.get("services") or "{}")
     d["health"] = json.loads(d.get("health") or "{}")
     d["fallbacks"] = json.loads(d.get("fallbacks") or "{}")
+    d["files"] = json.loads(d.get("files") or "{}")
     return d

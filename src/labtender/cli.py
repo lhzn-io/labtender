@@ -134,6 +134,7 @@ def cmd_host_set(a) -> None:
         transport=a.transport,
         health=_services(a.health),
         fallbacks=_fallbacks(a.fallback),
+        files=_services(a.file),
     )
     tiers = ", ".join(h["accepts"]) or "all tiers"
     print(
@@ -149,6 +150,8 @@ def cmd_host_set(a) -> None:
         print(f"  run link: {h['run_link']}")
     for k, v in sorted(h["labels"].items()):
         print(f"  label {k}={v}")
+    for k, f in sorted(h["files"].items()):
+        print(f"  file {k}: {f['path']}, late after {f['max_h']:g} h")
 
 
 def cmd_host_rm(a) -> None:
@@ -661,6 +664,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="KEY=VALUE",
         help="set a label; KEY= removes it (windows_gpu=off stops Windows sampling)",
+    )
+    s.add_argument(
+        "--file",
+        action="append",
+        metavar="NAME=PATH[@HOURS]",
+        help="show a file's age on the board, late after HOURS (default 26), for example"
+        " backup=~/backups/last-ok@26; NAME= removes it",
     )
     s.set_defaults(fn=cmd_host_set)
     s = host.add_parser("rm")

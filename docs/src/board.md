@@ -47,6 +47,11 @@ The card also holds what is not about a single GPU: claims on the whole host, pr
 the GPUs but are not pinned to one of them, with the reason ("not pinned to one GPU; counts on
 every GPU"), live runs that are not on a GPU, and the host's earlier runs.
 
+A host can also show how old a file is, such as the marker a nightly backup touches when it
+succeeds: `labtender host set NAME --file backup=~/backups/last-ok@26` adds a line "backup 9 h ago",
+which turns amber and says *late* once the file is older than 26 hours (or missing), and counts
+toward the Hosts tab's "needs a look". `--file backup=` removes it.
+
 ## GPU tiles
 
 Each GPU is a tile named by its card name, with where it is plugged in (`host/gpuN`) on the right:

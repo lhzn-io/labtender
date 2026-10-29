@@ -158,3 +158,24 @@ def test_board_and_shared_assets_are_served(tmp_path):
     font = c.get("/fonts/josefin-sans-latin-400-normal.woff2")
     assert font.status_code == 200 and font.content[:4] == b"wOF2"
     assert c.get("/fonts/..%2Fserver.py").status_code == 404
+
+
+def test_a_host_can_show_how_old_a_file_is(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from labtender.db import Store
+    from labtender.server import create_app
+
+    store = Store(tmp_path / "t.sqlite")
+    app = create_app(store=store, home=tmp_path, collect=False)
+    store.add_host("box", actor="t")
+    store.update_host("box", actor="t", files={"backup": "~/last-ok@26", "sweep": "/x/marker"})
+    assert store.host("box")["files"]["backup"] == {"path": "~/last-ok", "max_h": 26.0}
+    ages = {"~/last-ok": 3600.0, "/x/marker": None}
+    store.record_probe("box", {"host": {"file_ages": ages}, "gpus": [], "gpu_procs": []}, [])
+    h = TestClient(app).get("/api/state").json()["hosts"][0]
+    checks = {c["name"]: c for c in h["file_checks"]}
+    assert not checks["backup"]["late"] and checks["backup"]["age_s"] >= 3600
+    assert checks["sweep"]["late"] and checks["sweep"]["seen"] and checks["sweep"]["age_s"] is None
+    store.update_host("box", actor="t", files={"sweep": ""})
+    assert list(store.host("box")["files"]) == ["backup"]

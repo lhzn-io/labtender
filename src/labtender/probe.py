@@ -660,6 +660,15 @@ def main(argv=None):
     # Where the hub reached this host: the server side of the SSH connection, if any.
     ssh = (os.environ.get("SSH_CONNECTION") or "").split()
     host["reached_at"] = ssh[2] if len(ssh) == 4 else None
+    # Ages of the files the hub asked about (a nightly job's marker, say), on this host's clock.
+    ages = {}
+    for path in args.get("files") or []:
+        try:
+            ages[path] = max(0.0, t0 - os.stat(os.path.expanduser(path)).st_mtime)
+        except OSError:
+            ages[path] = None
+    if ages:
+        host["file_ages"] = ages
     procs, unreadable = [], 0
     if plat == "macos":
         # all-smi reads power and temperature without sudo; ioreg is the fallback.

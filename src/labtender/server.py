@@ -184,6 +184,7 @@ HOST_FIELDS = (
     "services",
     "health",
     "fallbacks",
+    "files",
     "run_link",
     "last_seen",
     "last_error",
@@ -268,6 +269,27 @@ def card_fields(card: dict | None, model: str | None, unified: bool | None) -> d
     }
 
 
+def file_checks(h: dict, info: dict | None, now: float) -> list[dict]:
+    """Each file the host is asked about: its age at the last probe and whether it is late."""
+    ages = (info or {}).get("file_ages") or {}
+    probed = h.get("last_seen") or now
+    out = []
+    for name, f in sorted(h.get("files", {}).items()):
+        age = ages.get(f["path"])
+        age = None if age is None else age + max(0.0, now - probed)
+        out.append(
+            {
+                "name": name,
+                "path": f["path"],
+                "max_h": f["max_h"],
+                "age_s": age,
+                "late": age is None or age > f["max_h"] * 3600,
+                "seen": f["path"] in ages,
+            }
+        )
+    return out
+
+
 def host_view(
     store: Store, ledger: Ledger, h: dict, now: float, roaming: dict | None = None
 ) -> dict:
@@ -301,6 +323,7 @@ def host_view(
         "online": online,
         "host": host_info,
         "roaming": networks.roaming_via((host_info or {}).get("reached_at"), roaming or {}),
+        "file_checks": file_checks(h, host_info, now),
         "gpus": gpus,
         "host_ledger": ledger.resource_view(h["name"]) if host_claims else None,
         "unplaced_procs": unplaced,

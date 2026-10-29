@@ -8,8 +8,9 @@ def test_kinds_and_bandwidth():
     assert gpukinds.bandwidth_gbs("NVIDIA GeForce RTX 5080") == 960
     assert gpukinds.bandwidth_gbs("NVIDIA GeForce RTX 5070 Ti") == 896
     assert (
-        gpukinds.bandwidth_gbs("NVIDIA GeForce RTX 5080 Laptop GPU") is None
-    )  # not the desktop part
+        gpukinds.bandwidth_gbs("NVIDIA GeForce RTX 5080 Laptop GPU") == 896
+    )  # not the desktop 960
+    assert gpukinds.bandwidth_gbs("NVIDIA GeForce RTX 5070 Laptop GPU") is None
     assert gpukinds.bandwidth_gbs("NVIDIA A100-SXM4-80GB") == 2039
     assert (
         gpukinds.bandwidth_gbs("NVIDIA L40S") == 864 and gpukinds.bandwidth_gbs("NVIDIA L4") == 300

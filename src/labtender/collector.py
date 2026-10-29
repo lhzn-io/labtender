@@ -262,7 +262,8 @@ class Collector:
     def request_for(self, host: str) -> tuple[dict, list[dict]]:
         watches = [w for w in self.store.watches(host) if w["parser"] in self.specs]
         reqs = [parsers.probe_request(self.specs[w["parser"]], w["glob"]) for w in watches]
-        return {"runs": reqs}, watches
+        files = sorted({f["path"] for f in (self.store.host(host) or {}).get("files", {}).values()})
+        return {"runs": reqs, "files": files}, watches
 
     async def poll_once(self, name: str) -> dict:
         host = self.store.host(name)
