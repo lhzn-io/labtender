@@ -33,6 +33,7 @@
   .sub { color: var(--muted); font: 10px/1.5 var(--mono); margin: 2px 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .hsub { color: var(--muted); font: 10px/1.6 var(--mono); margin-top: 3px; }
   .hsub.late { color: var(--warn); }
+  .hostcard > .top .seen { align-self: center; padding: 3px 8px 4px; margin-left: 4px; }
   .hold { color: var(--warn); font-size: 12px; margin: 0 0 4px; }
   .chart { position: relative; margin-top: 10px; }
   .chart svg { width: 100%; height: 40px; display: block; overflow: visible; }
@@ -159,7 +160,7 @@ function hostCard(h, now) {
     ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="hsub">${ended.length} earlier run${ended.length > 1 ? "s" : ""}</summary>${ended.map((r) => runHtml(r, now)).join("")}</details>`
     : "";
   return `<div class="hostcard">
-    <div class="top"><span class="dot ${h.online ? "on" : ""}"></span><b>${esc(h.name)}</b>${roam}<span class="where">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, ${h.probe_ms} ms` : ""}</span></div>
+    <div class="top"><span class="dot ${h.online ? "on" : ""}"></span><b>${esc(h.name)}</b>${roam}<span class="where">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, ${h.probe_ms} ms` : ""}</span>${seenButton(h, now)}</div>
     <div class="hsub" title="${esc(info.cpu_model || "")}">${esc(facts)}</div>
     ${servicesHtml(h, now)}${files}${errors}
     ${h.host_ledger ? ledgerHtml(h.host_ledger, now) : ""}
@@ -204,18 +205,53 @@ function sections(d, now) {
 }
 if (FLAT) { const a = document.getElementById("grouping"); a.href = "?#gpus"; a.textContent = "by kind"; }
 
+// "Seen" marks: a viewer can dismiss a host's reasons for a look, in this browser only. Each mark
+// names one reason (a stale run, a failing service, ...); one that clears and comes back is new.
+const SEEN_KEY = "labtender-seen";
+let seen = new Set();
+try { seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch { /* none kept */ }
+function saveSeen() {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen])); } catch { /* private window */ }
+}
+const staleKey = (h, r) => `${h} stale ${r.dir}`;
+
 // A stale run stays in view for a few hours (it may only be slow to log), then folds into the
 // host's earlier runs: by then it has almost always crashed, been stopped or moved elsewhere.
+// A stale run marked seen folds away at once.
 const STALE_SHOWN_H = 6;
 const shownLive = (r, now) => r.state === "running" ||
-  (r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600);
+  (r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600 && !seen.has(staleKey(r.host, r)));
 
-// A host needs a look when it is not answering, its probe or a service fails, or it holds a
-// stale run still in view.
-const needsLook = (h, now) => !h.online || h.last_error || (h.probe_errors || []).length ||
-  Object.values(h.service_health || {}).some((c) => !c.ok) ||
-  (h.file_checks || []).some((f) => f.late && f.seen) ||
-  (h.runs || []).some((r) => r.state === "stale" && shownLive(r, now));
+// A host needs a look when it is not answering, its probe or a service fails, a file check is
+// late, or it holds a stale run still in view: one reason each, as [key, words].
+function lookReasons(h, now) {
+  const n = h.name;
+  return [
+    ...(!h.online ? [[`${n} offline`, "not answering"]] : []),
+    ...[h.last_error, ...(h.probe_errors || [])].filter(Boolean).map((e) => [`${n} error ${e}`, e]),
+    ...Object.entries(h.service_health || {}).filter(([, c]) => !c.ok).map(([s]) => [`${n} service ${s}`, `${s} down`]),
+    ...(h.file_checks || []).filter((f) => f.late && f.seen).map((f) => [`${n} file ${f.name}`, `${f.name} late`]),
+    ...(h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600)
+      .map((r) => [staleKey(n, r), `${r.name} stale`]),
+  ];
+}
+const openReasons = (h, now) => lookReasons(h, now).filter(([k]) => !seen.has(k));
+const needsLook = (h, now) => openReasons(h, now).length > 0;
+function seenButton(h, now) {
+  const open = openReasons(h, now);
+  return open.length
+    ? `<button class="seen" data-seen="${esc(h.name)}" title="Dismiss in this browser until something new comes up: ${esc(open.map(([, w]) => w).join("; "))}">seen</button>`
+    : "";
+}
+let lastState = null;
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("button[data-seen]");
+  const h = b && lastState?.hosts.find((x) => x.name === b.dataset.seen);
+  if (!h) return;
+  openReasons(h, lastState.time).forEach(([k]) => seen.add(k));
+  saveSeen();
+  refresh();
+});
 
 // GPUs or Hosts, from the link (#gpus, #hosts), else the last one chosen here, else GPUs.
 function chosenTab() {
@@ -282,8 +318,12 @@ async function refresh() {
       return r.json();
     };
     const [state, gauges] = await Promise.all([get("/api/state"), get("/api/gauges?minutes=60")]);
-    data = join(state, gauges);
+    lastState = state;
     const now = state.time;
+    // Marks whose reason has cleared are dropped, so that reason shows again if it returns.
+    const present = new Set(state.hosts.flatMap((h) => lookReasons(h, now).map(([k]) => k)));
+    if ([...seen].some((k) => !present.has(k))) { seen = new Set([...seen].filter((k) => present.has(k))); saveSeen(); }
+    data = join(state, gauges);
     $("#totals").innerHTML = totals(data.gpus);
     $("#hosts").innerHTML = state.hosts.map((h) => hostCard(h, now)).join("") ||
       `<div class="empty">No hosts yet. Add one with: labtender host add &lt;name&gt;</div>`;
