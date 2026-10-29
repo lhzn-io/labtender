@@ -1,10 +1,11 @@
 # Reading the board
 
-The board at `/` shows the lab's totals, then a card per host, then a tile per GPU with round
-gauges, grouped by kind, then the yachts. `/board` keeps the classic layout, one panel per host
-with bars instead of gauges, and `/compact` packs the same information into a narrow column. All
-refresh every 15 s; readings are as fresh as each host's probe interval (45 s by default,
-`labtender host set NAME --interval`).
+The board at `/` shows the lab's totals, then two tabs: **GPUs**, a tile per GPU with round
+gauges, grouped by kind, and **Hosts**, a card per host. The yachts close the page. The board opens
+on the tab last chosen in that browser (GPUs at first); `/#gpus` and `/#hosts` link to either. The
+Hosts tab says how many hosts need a look: not answering, a failing probe or service, or a stale
+run. `/compact` packs the same information into a narrow column. Both refresh every 15 s; readings
+are as fresh as each host's probe interval (45 s by default, `labtender host set NAME --interval`).
 
 ```{figure} _static/board.png
 :alt: The labtender board for a fictional lab: host cards, then a tile per GPU with round gauges, claims and runs, then the yachts
@@ -64,7 +65,8 @@ model it does not know (laptop parts among them), give it with `labtender card b
 A live run shows on the tile of the GPU it runs on (or on its host's card when it is on none),
 with a progress bar, simulated time over target, wall rate, the estimated finish as a clock time,
 the GPU, and how long ago its log last moved. Finished, exited and vanished runs fold into the
-host's *earlier runs*.
+host's *earlier runs*, and so does a stale run once its log has been silent for 6 hours: by then it
+has almost always crashed, been stopped, or moved to another host.
 
 A job that two watches both follow, such as a wrapper's folder and the job's own log folder,
 shows once while one live process holds both: the run whose log moved last, with the other

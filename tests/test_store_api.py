@@ -141,13 +141,14 @@ def test_a_host_reached_through_a_roaming_network_says_so(tmp_path):
     assert hosts == {"laptop": "vpn", "tower": None, "box": None}
 
 
-def test_home_classic_board_and_shared_assets_are_served(tmp_path):
+def test_board_and_shared_assets_are_served(tmp_path):
     from fastapi.testclient import TestClient
 
     from labtender.server import create_app
 
     c = TestClient(create_app(home=tmp_path, collect=False))
     assert "hostCard" in c.get("/").text and c.get("/gauges").text == c.get("/").text
-    assert "classic board" in c.get("/board").text
+    r = c.get("/board", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/#hosts"
     assert c.get("/common.js").headers["content-type"].startswith("text/javascript")
     assert "ledger" in c.get("/common.css").text

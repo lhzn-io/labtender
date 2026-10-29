@@ -191,6 +191,11 @@ def interpret(spec: dict, entry: dict, probe_time: float, hub_time: float) -> di
         # a little before the end.
         out["state"] = "done"
         out["pct"] = 100.0
+    elif failed := _failure(spec, text):
+        # The log says the run failed (a crash or an error it stopped on): it has ended, and no
+        # exit status will follow, so it is exited rather than left to go stale.
+        out["state"] = "exited"
+        out["failure"] = failed
     elif (
         done.get("at_target", True)
         and out["t_h"] is not None
@@ -216,3 +221,12 @@ def interpret(spec: dict, entry: dict, probe_time: float, hub_time: float) -> di
         out["eta_s"] = remaining_h * out["wall_min_per_sim_h"] * 60.0
         out["finish_at"] = out["last_log_at"] + out["eta_s"]
     return out
+
+
+def _failure(spec: dict, text: str) -> str | None:
+    """The last log line matching the spec's [failed] regex, or None."""
+    pattern = (spec.get("failed") or {}).get("regex")
+    if not pattern:
+        return None
+    hits = [ln for ln in text.splitlines() if re.search(pattern, ln)]
+    return hits[-1].strip()[:200] if hits else None

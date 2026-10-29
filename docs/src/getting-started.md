@@ -78,8 +78,8 @@ different format, write a spec of your own; see [](runs.md).
 labtender serve                         # http://127.0.0.1:8795/
 ```
 
-Open `http://127.0.0.1:8795/` for the board, `/board` for the classic layout with one panel
-per host, or `/compact` for a narrow view to keep in a corner of the screen. `labtender status` prints the same picture as text.
+Open `http://127.0.0.1:8795/` for the board, or `/compact` for a narrow view to keep in a
+corner of the screen. `labtender status` prints the same picture as text.
 
 The labtender service binds to `127.0.0.1` by default. To let other machines reach it, bind it to a LAN or VPN
 address with `--bind`; never expose it to the internet (see [](safety.md)).

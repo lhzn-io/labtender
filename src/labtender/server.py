@@ -21,7 +21,7 @@ from importlib import resources
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from . import gpukinds, networks
@@ -406,14 +406,14 @@ def create_app(
     def page(name: str) -> str:
         return resources.files("labtender").joinpath(f"board/{name}").read_text("utf-8")
 
-    # The home page: hosts, then every GPU with its gauges, claims and runs, then the yachts.
+    # The board: the lab's GPUs (gauges, claims, runs) and hosts, in two tabs, and the yachts.
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def home() -> str:
         return page("home.html")
 
-    @app.api_route("/board", methods=["GET", "HEAD"], response_class=HTMLResponse)
-    async def board() -> str:
-        return page("index.html")
+    @app.get("/board")
+    async def board() -> RedirectResponse:
+        return RedirectResponse("/#hosts")  # the classic board's address, kept for bookmarks
 
     @app.get("/auth.js")
     async def auth_js() -> Response:

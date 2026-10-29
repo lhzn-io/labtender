@@ -124,3 +124,12 @@ def test_probe_request_includes_done_marker(spec):
 def test_silent_run_just_short_of_target_is_done(spec):
     line = LINE.replace("time 36.0 h", "time 47.9 h")
     assert parsers.interpret(spec, entry(line), 1000.0 + 3600, 0.0)["state"] == "done"
+
+
+def test_a_failure_line_ends_the_run_as_exited():
+    spec = parsers.load_specs()["run-logdir"]
+    e = logdir("duration_h = 24\n", logline(2.0) + "\nFATAL: out of memory\n")
+    r = parsers.interpret(spec, e, 0.0, 0.0)
+    assert r["state"] == "exited" and r["failure"] == "FATAL: out of memory"
+    e["markers"] = {"DONE": ""}  # a completion file still wins
+    assert parsers.interpret(spec, e, 0.0, 0.0)["state"] == "done"

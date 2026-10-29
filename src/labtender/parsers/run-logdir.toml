@@ -37,3 +37,6 @@ unit = "hours"
 [done]
 file = "DONE"            # written when the job finishes
 at_target = true
+
+[failed]
+regex = '\bFATAL\b|\bTraceback \(most recent call last\)'   # the job stopped on an error

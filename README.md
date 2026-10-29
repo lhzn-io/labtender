@@ -47,8 +47,7 @@ LABTENDER_HOME=/tmp/labtender-demo uv run python scripts/demo_state.py
 LABTENDER_HOME=/tmp/labtender-demo uv run labtender serve --no-collect
 ```
 
-Then open <http://127.0.0.1:8795/>, `/board` (the classic layout), `/compact`, `/prices` and
-`/purser`.
+Then open <http://127.0.0.1:8795/>, `/compact`, `/prices` and `/purser`.
 
 ## Use it on your lab
 

@@ -76,7 +76,14 @@ line = "DONE"                   # or a final line in the log
 file = "finished"               # or a file whose presence alone means it finished
 at_target = true                # done once t reaches the target
 near_target_pct = 99.0          # a silent run this close to its target counts as done
+
+[failed]
+regex = 'FATAL|Pipeline FAILED' # a log line saying the run failed: exited, with that line
 ```
+
+A run whose log matches `[failed]` (and that has not finished) is shown as *exited* with the
+matching line, rather than going stale when its log falls silent. Without it, a run that crashes
+without an exit status stays stale until it ages out of the board (`max_age_h`).
 
 For text logs, use a regex with named groups instead:
 

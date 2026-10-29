@@ -1,5 +1,5 @@
-/* Shared by the home page and the classic board: colours, and the ledger, run, service and
-   charter blocks. */
+/* The board's colours, and its ledger, run, service and charter blocks, kept apart from the
+   page so other pages can share them. */
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
   --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;

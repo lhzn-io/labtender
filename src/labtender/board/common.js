@@ -1,6 +1,7 @@
 "use strict";
-// Shared by the home page and the classic board: formatting, and how a GPU's ledger, a run,
-// a host's services and the yachts are drawn. Each page defines refresh().
+// The board's formatting helpers, and how a GPU's ledger, a run, a host's services and the
+// yachts are drawn, kept apart from the page so other pages can share them. A page using them
+// defines refresh().
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (v) => (v == null ? null : Math.max(0, Math.min(100, v)));
@@ -80,7 +81,7 @@ function runHtml(r, now) {
   const t = r.t_h != null && r.target_h ? `${r.t_h.toFixed(1)} / ${r.target_h.toFixed(0)} sim h` : "";
   const rate = r.wall_min_per_sim_h ? ` · pace ${r.wall_min_per_sim_h.toFixed(1)} min per h` : "";
   const eta = r.state === "running" && r.finish_at ? ` · done ${clock(r.finish_at)} (in ${dur(r.finish_at - now)})` : "";
-  const code = r.exit_code != null ? ` · exit ${r.exit_code}` : "";
+  const code = (r.exit_code != null ? ` · exit ${r.exit_code}` : "") + (r.failure ? ` · ${esc(r.failure)}` : "");
   return `<div class="run">
     <div class="top"><span class="name" title="${esc(r.dir)}">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}</span><span class="badge s-${esc(r.state)}">${esc(r.state)}</span></div>
     <div class="row"><span class="lab">${p == null ? "?" : p.toFixed(0) + " %"}</span>${bar(p, "var(--accent)")}<span class="val">log ${ago(r.last_log_at, now)}</span></div>

@@ -27,6 +27,9 @@
   .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .stat .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
   h2.group { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+  #grouping { float: right; margin-top: 14px; color: var(--muted); font-size: 12px; text-decoration: none; }
+  #grouping:hover { text-decoration: underline; }
+  #hosts-pane { margin-top: 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px;
           align-items: start; }
   .hosts { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
@@ -58,24 +61,37 @@
          background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px;
          font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
   .foot { color: var(--muted); font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; }
+  .tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; font-size: 13px;
+            border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+  .tabs .attn { color: var(--warn); font-weight: 400; }
+  body[data-tab="gpus"] #hosts-pane, body[data-tab="hosts"] #gpus-pane { display: none; }
 </style>
 </head>
 <body>
 <header>
   <h1>labtender</h1>
   <span class="meta" id="meta">loading</span>
-  <a class="meta" id="grouping" href="?group=none">one list</a>
-  <a class="meta" href="/board">classic board</a>
   <a class="meta" href="/compact">compact</a>
   <a class="meta" href="/prices">prices</a>
   <a class="meta" href="/purser">purser</a>
 </header>
+<nav class="tabs" role="tablist">
+  <a href="#gpus" role="tab" data-tab="gpus" id="tab-gpus">GPUs</a>
+  <a href="#hosts" role="tab" data-tab="hosts" id="tab-hosts">Hosts</a>
+</nav>
 <main>
   <section class="totals" id="totals" aria-label="Lab totals"></section>
   <div id="yachts-first"></div>
-  <h2 class="group">Hosts</h2>
-  <section class="grid hosts" id="hosts" aria-label="Hosts"></section>
-  <div id="grid" aria-label="GPUs"></div>
+  <div id="gpus-pane" role="tabpanel" aria-labelledby="tab-gpus">
+    <a class="meta" id="grouping" href="?group=none#gpus">one list</a>
+    <div id="grid" aria-label="GPUs"></div>
+  </div>
+  <div id="hosts-pane" role="tabpanel" aria-labelledby="tab-hosts">
+    <section class="grid hosts" id="hosts" aria-label="Hosts"></section>
+  </div>
   <div id="yachts"></div>
 </main>
 <script src="/auth.js"></script>
@@ -214,8 +230,8 @@ function hostCard(h, now) {
   const all = [...(h.runs || [])].sort((a, b) =>
     (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.last_log_at ?? 0) - (a.last_log_at ?? 0));
   // Live runs on a GPU show on its tile; the rest are listed here.
-  const live = all.filter((r) => ["running", "stale"].includes(r.state) && !onCard.has(r.card));
-  const ended = all.filter((r) => !["running", "stale"].includes(r.state));
+  const live = all.filter((r) => shownLive(r, now) && !onCard.has(r.card));
+  const ended = all.filter((r) => !shownLive(r, now));
   const key = `ended:${h.name}`;
   const earlier = ended.length
     ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="hsub">${ended.length} earlier run${ended.length > 1 ? "s" : ""}</summary>${ended.map((r) => runHtml(r, now)).join("")}</details>`
@@ -264,7 +280,34 @@ function sections(d, now) {
     return list.length ? `<h2 class="group">${esc(label)} · ${list.length}</h2>${grid(list)}` : "";
   }).join("") + grid(tiles.filter(([g]) => !(d.groups || []).some((x) => x.kind === g.kind)));
 }
-if (FLAT) { const a = document.getElementById("grouping"); a.href = "?"; a.textContent = "by kind"; }
+if (FLAT) { const a = document.getElementById("grouping"); a.href = "?#gpus"; a.textContent = "by kind"; }
+
+// A stale run stays in view for a few hours (it may only be slow to log), then folds into the
+// host's earlier runs: by then it has almost always crashed, been stopped or moved elsewhere.
+const STALE_SHOWN_H = 6;
+const shownLive = (r, now) => r.state === "running" ||
+  (r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600);
+
+// A host needs a look when it is not answering, its probe or a service fails, or it holds a
+// stale run still in view.
+const needsLook = (h, now) => !h.online || h.last_error || (h.probe_errors || []).length ||
+  Object.values(h.service_health || {}).some((c) => !c.ok) ||
+  (h.runs || []).some((r) => r.state === "stale" && shownLive(r, now));
+
+// GPUs or Hosts, from the link (#gpus, #hosts), else the last one chosen here, else GPUs.
+function chosenTab() {
+  const h = location.hash.slice(1);
+  if (h === "gpus" || h === "hosts") return h;
+  try { return localStorage.getItem("labtender-tab") || "gpus"; } catch { return "gpus"; }
+}
+function showTab() {
+  const tab = chosenTab();
+  document.body.dataset.tab = tab;
+  document.querySelectorAll(".tabs a").forEach((a) => a.setAttribute("aria-selected", a.dataset.tab === tab));
+  try { localStorage.setItem("labtender-tab", tab); } catch { /* private window: not remembered */ }
+}
+window.addEventListener("hashchange", showTab);
+showTab();
 
 // The gauges come from /api/gauges (sorted, with history); each GPU's claims, processes and runs
 // from /api/state, joined by host and index.
@@ -277,7 +320,7 @@ function join(state, gauges) {
     g.proclist = s?.procs;
     g.windows_procs = s?.windows_procs;
     g.display_active = s?.display_active;
-    g.runs = (h?.runs || []).filter((r) => r.card === g.index && ["running", "stale"].includes(r.state));
+    g.runs = (h?.runs || []).filter((r) => r.card === g.index && shownLive(r, state.time));
   }
   return gauges;
 }
@@ -328,6 +371,9 @@ async function refresh() {
     $("#yachts").innerHTML = urgent ? "" : yachtsHtml(state);
     // Open log panels follow along, without ever prompting from a background refresh.
     [...openDetails].filter((k) => k.startsWith("charter-log:")).forEach((k) => loadLog(k.split(":")[1], false));
+    const look = state.hosts.filter((h) => needsLook(h, now)).length;
+    $("#tab-gpus").textContent = `GPUs ${data.gpus.length}`;
+    $("#tab-hosts").innerHTML = `Hosts ${state.hosts.length}${look ? ` <span class="attn">· ${look} need${look > 1 ? "" : "s"} a look</span>` : ""}`;
     const live = state.hosts.filter((h) => h.online).length;
     $("#meta").textContent = `${live} of ${state.hosts.length} hosts live · ${data.gpus.length} GPU${data.gpus.length === 1 ? "" : "s"} · updated ${hm(now)}`;
   } catch (e) {
