@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- launchd agent for the labtender service. Edit the paths, then see docs/src/service.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.lhzn.labtender</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.local/bin/labtender</string>
+    <string>serve</string>
+    <string>--bind</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8795</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/labtender.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/labtender.log</string>
+</dict>
+</plist>

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6; --track: #e3e7ec;
+    --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --util: #1f5fa8; --mem: #6b4fa0; --run: #1f5fa8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038; --track: #262c33;
+      --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --util: #6ea8ea; --mem: #a88be0; --run: #6ea8ea;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Thin scrollbars in the board's colours (standard property first, WebKit for Safari). */
+  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
+  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
+  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  body { margin: 0; padding: 8px 10px 10px; background: var(--bg); color: var(--ink);
+         font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  header b { font-size: 13px; letter-spacing: .02em; }
+  header a { color: var(--muted); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  .host { border-top: 1px solid var(--line); padding: 5px 0 3px; }
+  .hname { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+  .hname .note { font-weight: 400; color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .hname .note.warn { color: var(--warn); } .hname .note.bad { color: var(--bad); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--ok); }
+  .card, .run { display: grid; align-items: center; gap: 6px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .card { grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 92px; }
+  /* The last column grows to fit a long finish time rather than spill past the window. */
+  .run { grid-template-columns: 22px minmax(0, 1fr) 56px minmax(92px, max-content); }
+  .lab { color: var(--muted); }
+  .val { text-align: right; color: var(--muted); white-space: nowrap; }
+  .bar { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; }
+  /* Ellipsis on the left keeps the end of a run name, usually its most specific part. */
+  .rname { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+  .empty { color: var(--muted); padding: 6px 0; }
+  .rname a { color: inherit; text-decoration: none; }
+  .rname a:hover { text-decoration: underline; }
+  .claim { padding-left: 28px; color: var(--muted); overflow: hidden; white-space: nowrap;
+           text-overflow: ellipsis; margin-top: 1px; }
+  .claim b { color: var(--ink); font-weight: 600; }
+  .claim .flag { color: var(--warn); }
+  .yachts { border-top: 1px solid var(--line); padding: 4px 0; }
+  .yachts a { color: inherit; }
+  .yachts .warn { color: var(--warn); } .yachts .bad { color: var(--bad); font-weight: 600; }
+  .yachts:empty { display: none; }
+</style>
+</head>
+<body>
+<header><b>labtender</b><a href="/" target="_blank" id="meta" title="Open the full board">loading</a></header>
+<div id="yachts" class="yachts"></div>
+<div id="hosts"></div>
+<script>
+"use strict";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const clamp = (v) => Math.max(0, Math.min(100, v ?? 0));
+const bar = (v, color) => `<div class="bar"><i style="width:${clamp(v)}%;background:${color}"></i></div>`;
+function clock(t) {
+  const d = new Date(t * 1000), now = new Date();
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === now.toDateString() ? hm : `${d.toLocaleDateString([], { weekday: "short" })} ${hm}`;
+}
+const shortName = (n) => n.replace(/[-_]\d{8}[-_]\d{6}$/, "");
+function cardHtml(g) {
+  const mem = g.mem_total_mib ? 100 * (g.mem_used_mib ?? 0) / g.mem_total_mib : null;
+  const facts = [
+    g.util_pct == null ? "n/a" : `${Math.round(g.util_pct)}%`,
+    g.mem_total_mib ? `${((g.mem_used_mib ?? 0) / 1024).toFixed(1)}G` : null,
+    g.temp_c != null ? `${Math.round(g.temp_c)}C` : null,
+  ].filter(Boolean).join(" ");
+  const l = g.ledger || { holders: [], queue: [], flags: [] };
+  const who = l.holders.map((c) => `<b>${esc(c.owner)}</b>${c.frozen ? " paused" : c.est_end ? " " + clock(c.est_end) : ""}`).join(", ");
+  const wait = l.queue.length ? ` · +${l.queue.length} waiting` : "";
+  const flag = (l.flags || []).map((f) => `<span class="flag">${esc(f.kind.replace("-", " "))}</span>`).join(" ");
+  const line = who || wait || flag ? `<div class="claim" title="${esc((l.flags || []).map((f) => f.detail).join("; "))}">${who || "free"}${wait}${flag ? " · " + flag : ""}</div>` : "";
+  return `<div class="card" title="${esc(g.name)}"><span class="lab">g${g.index}</span>${bar(g.util_pct, "var(--util)")}${bar(mem, "var(--mem)")}<span class="val">${facts}</span></div>${line}`;
+}
+function runHtml(r) {
+  const when = r.finish_at ? clock(r.finish_at) : "";
+  const card = r.card != null ? `g${r.card}` : "";
+  return `<div class="run" title="${esc(r.name)}"><span class="lab">${card}</span><span class="rname"><bdi>${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(shortName(r.name))}</a>` : esc(shortName(r.name))}</bdi></span>${bar(r.pct, "var(--run)")}<span class="val">${r.pct == null ? "?" : Math.round(r.pct) + "%"} ${when}</span></div>`;
+}
+function hostHtml(h, now) {
+  let note = "", cls = "", tip = "";
+  if (!h.online) { note = h.last_error ? "unreachable" : "offline"; cls = "bad"; }
+  else {
+    const stale = (h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < 6 * 3600);
+    if (stale.length) { note = stale.length > 1 ? `${stale.length} stale runs` : "stale run"; cls = "warn"; tip = stale.map((r) => r.name).join(", "); }
+  }
+  const down = Object.entries(h.service_health || {}).filter(([, c]) => !c.ok);
+  if (!note && down.length) {
+    note = down.length > 1 ? `${down.length} services down` : `${down[0][0]} down`;
+    cls = "bad"; tip = down.map(([n, c]) => `${n}: ${c.detail}`).join("; ");
+  }
+  if (!note && (h.unplaced_procs || []).length) { note = "unpinned GPU use"; cls = "warn"; }
+  const running = (h.runs || []).filter((r) => r.state === "running");
+  return `<div class="host">
+    <div class="hname"><span class="dot ${h.online ? "on" : ""}"></span>${esc(h.name)}<span class="note ${cls}" title="${esc(tip)}">${note}</span></div>
+    ${(h.gpus || []).map(cardHtml).join("")}
+    ${running.map(runHtml).join("")}
+  </div>`;
+}
+function yachtsHtml(s) {
+  const cs = s.charters || [];
+  const live = cs.filter((c) => ["launching", "live", "landing"].includes(c.state));
+  const waiting = cs.filter((c) => c.state === "requested");
+  const adrift = cs.filter((c) => c.state === "adrift");
+  const parts = [];
+  if (adrift.length) parts.push(`<span class="bad">${adrift.length} adrift: destroy failed</span>`);
+  if (waiting.length) parts.push(`<a class="warn" href="/" target="_blank">${waiting.length} waiting for a purser</a>`);
+  if (live.length) {
+    const cost = live.reduce((t, c) => t + (c.cost_so_far || 0), 0);
+    const rate = live.reduce((t, c) => t + (c.rate_usd_h || 0), 0);
+    parts.push(`${live.length} yacht${live.length > 1 ? "s" : ""} out, $${rate.toFixed(2)}/h, $${cost.toFixed(2)} so far`);
+  }
+  return parts.join(" · ");
+}
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/state", { cache: "no-store" })).json();
+    document.getElementById("yachts").innerHTML = yachtsHtml(s);
+    document.getElementById("hosts").innerHTML = s.hosts.map((h) => hostHtml(h, s.time)).join("") ||
+      `<div class="empty">No hosts registered.</div>`;
+    const live = s.hosts.filter((h) => h.online).length;
+    document.getElementById("meta").textContent = `${live}/${s.hosts.length} live · ${new Date(s.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  } catch (e) {
+    document.getElementById("meta").textContent = "labtender service unreachable";
+  }
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

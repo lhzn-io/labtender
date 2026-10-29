@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender gauges</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
+    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e;
+    --util: #1f5fa8; --mem: #6b4fa0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
+      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62;
+      --util: #6ea8ea; --mem: #a88be0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
+  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
+  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; padding: 14px 16px 6px; }
+  header h1 { font-size: 17px; margin: 0; }
+  header h1 a { color: inherit; text-decoration: none; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header a.meta { text-decoration: none; } header a.meta:hover { text-decoration: underline; }
+  main { padding: 6px 16px 20px; }
+  .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px;
+          align-items: start; }
+  .dials { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
+  .dial { text-align: center; min-width: 0; }
+  .dial svg { width: 100%; max-width: 104px; display: block; margin: 0 auto -6px; }
+  .dial .v { font-size: 21px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
+  .dial .u { font-size: 10px; fill: var(--muted); }
+  .dial .lbl { font-size: 12px; }
+  .dial .lbl.warn { color: var(--warn); } .dial .lbl.bad { color: var(--bad); font-weight: 600; }
+  .dial .of { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .tile.away { opacity: .6; }
+  .top { display: flex; gap: 6px; align-items: baseline; }
+  .top b { font-size: 14px; }
+  .top .where { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--bad); flex: none; align-self: center; }
+  .dot.on { background: var(--ok); }
+  .sub { color: var(--muted); font-size: 12px; margin: 1px 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sub .held { color: var(--ink); }
+  .chart { position: relative; margin-top: 8px; }
+  .chart svg { width: 100%; height: 40px; display: block; overflow: visible; }
+  .legend { display: flex; gap: 12px; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .legend i { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 4px; }
+  .tip { position: absolute; z-index: 2; top: -6px; transform: translate(-50%, -100%); pointer-events: none;
+         background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px;
+         font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+  .foot { color: var(--muted); font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; }
+  .empty { color: var(--muted); }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">labtender</a> · gauges</h1>
+  <span class="meta" id="meta">loading</span>
+  <a class="meta" href="/">board</a>
+</header>
+<main>
+  <section class="totals" id="totals" aria-label="Lab totals"></section>
+  <section class="grid" id="grid" aria-label="GPUs"></section>
+</main>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const HOT_C = 80, VERY_HOT_C = 90;  // temperature labels; the bar stays neutral below these
+const age = (s) => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const pct = (v, max) => v == null || !max ? null : Math.max(0, Math.min(100, 100 * v / max));
+const gib = (mib) => (mib / 1024).toFixed(1);
+
+// Near its ceiling a cost (memory, power, heat) turns amber, then red; the label says so too.
+const level = (f) => f == null ? "" : f >= 0.92 ? "bad" : f >= 0.78 ? "warn" : "";
+
+// A 270 degree dial: frac in [0, 1] (null when the GPU does not report it), the value and unit in
+// the middle, and the label and its ceiling underneath.
+function dial({ value, unit, frac, color, label, of, cls = "" }) {
+  const r = 46, cx = 60, cy = 60, start = 135, sweep = 270;
+  const f = frac == null ? 0 : Math.max(0, Math.min(1, frac));
+  const pt = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const arc = (a0, a1) => {
+    const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
+    return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  };
+  const ticks = [];
+  for (let i = 0; i <= 10; i++) {
+    const a = (start + sweep * i / 10) * Math.PI / 180, r0 = i % 5 ? 53 : 51, r1 = 56;
+    ticks.push(`<line x1="${(cx + r0 * Math.cos(a)).toFixed(1)}" y1="${(cy + r0 * Math.sin(a)).toFixed(1)}" x2="${(cx + r1 * Math.cos(a)).toFixed(1)}" y2="${(cy + r1 * Math.sin(a)).toFixed(1)}" stroke="var(--line)" stroke-width="${i % 5 ? 1 : 1.6}"/>`);
+  }
+  const end = start + sweep * f, [nx, ny] = pt(end);
+  const shown = frac != null && f > 0.002;
+  return `<div class="dial">
+    <svg viewBox="0 0 120 106" role="img" aria-label="${esc(label)}: ${esc(value)} ${esc(unit)}">
+      ${ticks.join("")}
+      <path d="${arc(start, start + sweep)}" stroke="var(--track)" stroke-width="9" fill="none" stroke-linecap="round"/>
+      ${shown ? `<path d="${arc(start, end)}" stroke="${color}" stroke-width="9" fill="none" stroke-linecap="round"/>` : ""}
+      ${frac != null ? `<circle cx="${nx.toFixed(2)}" cy="${ny.toFixed(2)}" r="3.2" fill="var(--panel)" stroke="${color}" stroke-width="2"/>` : ""}
+      <text x="60" y="64" text-anchor="middle" class="v">${esc(value)}</text>
+      <text x="60" y="78" text-anchor="middle" class="u">${esc(unit)}</text>
+    </svg>
+    <div class="lbl ${cls}">${esc(label)}</div>
+    <div class="of">${esc(of || "")}</div>
+  </div>`;
+}
+
+// Load and memory over the window as two 2px lines on a shared 0-100 % scale.
+function chart(id, g) {
+  const pts = g.history || [];
+  if (pts.length < 2) return `<div class="chart"><div class="legend">no history yet</div></div>`;
+  const w = 300, h = 40, t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const x = (t) => ((t - t0) / Math.max(1, t1 - t0) * w).toFixed(1);
+  const y = (v) => (h - 1 - (v / 100) * (h - 2)).toFixed(1);
+  const line = (key, color) => {
+    const xy = pts.map((p) => [p.t, key(p)]).filter(([, v]) => v != null).map(([t, v]) => `${x(t)},${y(v)}`);
+    return xy.length > 1 ? `<polyline fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${xy.join(" ")}"/>` : "";
+  };
+  return `<div class="chart" data-chart="${id}">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Load and memory, last ${Math.round((t1 - t0) / 60)} minutes">
+      <line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--line)" vector-effect="non-scaling-stroke"/>
+      ${line((p) => p.util, "var(--util)")}
+      ${line((p) => pct(p.mem_used, p.mem_total), "var(--mem)")}
+      <line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+    </svg>
+    <div class="legend"><span><i style="background:var(--util)"></i>load</span><span><i style="background:var(--mem)"></i>memory</span><span>last ${Math.round((t1 - t0) / 60)} min</span></div>
+  </div>`;
+}
+
+function tile(g, i, now) {
+  const where = `${esc(g.host)}/gpu${g.index}`;
+  const title = g.card_name ? `<b title="${esc(g.uuid || "")}">${esc(g.card_name)}</b>` : `<b>${esc(g.model || `GPU ${g.index}`)}</b>`;
+  const holders = (g.holders || []);
+  const who = holders.length ? `<span class="held">held by ${holders.map(esc).join(", ")}</span>` : "free";
+  const queue = g.queued ? `, ${g.queued} waiting` : "";
+  if (g.away) {
+    return `<div class="tile away"><div class="top"><span class="dot"></span>${title}<span class="where">${where}</span></div>
+      <div class="sub">${g.card_name && g.model ? `${esc(g.model)} · ` : ""}away, last seen ${age(now - g.last_seen)} ago</div></div>`;
+  }
+  const memF = g.mem_total_mib ? (g.mem_used_mib ?? 0) / g.mem_total_mib : null;
+  const pwrF = g.power_w != null && g.power_limit_w ? g.power_w / g.power_limit_w : null;
+  const temp = g.temp_c;
+  const tcls = temp == null ? "" : temp >= VERY_HOT_C ? "bad" : temp >= HOT_C ? "warn" : "";
+  const tword = tcls === "bad" ? "very hot" : tcls === "warn" ? "hot" : "";
+  const tone = (cls) => cls ? `var(--${cls})` : "var(--ok)";
+  const sub = [g.card_name ? esc(g.model) : null, who + queue].filter(Boolean).join(" · ");
+  return `<div class="tile">
+    <div class="top"><span class="dot ${g.online ? "on" : ""}" title="${g.online ? "reporting" : "host not answering"}"></span>${title}<span class="where">${where}</span></div>
+    <div class="sub">${sub}</div>
+    <div class="dials">
+      ${dial({ label: "load", value: g.util_pct == null ? "n/a" : Math.round(g.util_pct), unit: g.util_pct == null ? "" : "%",
+               frac: g.util_pct == null ? null : g.util_pct / 100, color: "var(--util)", of: g.clock_mhz != null ? `${g.clock_mhz} MHz` : "" })}
+      ${dial({ label: g.unified ? "memory" : "VRAM", value: memF == null ? "n/a" : gib(g.mem_used_mib ?? 0), unit: memF == null ? "" : "GiB",
+               frac: memF, color: level(memF) ? tone(level(memF)) : "var(--mem)", of: memF == null ? "" : `of ${gib(g.mem_total_mib)} GiB`,
+               cls: level(memF) })}
+      ${dial({ label: "power", value: g.power_w == null ? "n/a" : Math.round(g.power_w), unit: g.power_w == null ? "" : "W",
+               frac: pwrF, color: tone(level(pwrF)), of: g.power_limit_w ? `limit ${Math.round(g.power_limit_w)} W` : "", cls: level(pwrF) })}
+      ${dial({ label: tword ? `temp, ${tword}` : "temp", value: temp == null ? "n/a" : Math.round(temp), unit: temp == null ? "" : "C",
+               frac: temp == null ? null : temp / 100, color: tone(tcls), of: "", cls: tcls })}
+    </div>
+    ${chart(i, g)}
+    <div class="foot"><span>${g.procs ? `${g.procs} GPU process${g.procs > 1 ? "es" : ""}` : "no GPU processes"}</span><span>${g.online ? `updated ${age(now - g.probed_at)} ago` : `host silent ${age(now - g.probed_at)}`}</span></div>
+  </div>`;
+}
+
+function totals(gpus) {
+  const live = gpus.filter((g) => !g.away && g.online);
+  const busy = live.filter((g) => (g.util_pct ?? 0) >= 50).length;
+  const held = gpus.filter((g) => (g.holders || []).length).length;
+  const watts = live.reduce((s, g) => s + (g.power_w ?? 0), 0);
+  const memU = live.filter((g) => !g.unified).reduce((s, g) => s + (g.mem_used_mib ?? 0), 0);
+  const memT = live.filter((g) => !g.unified).reduce((s, g) => s + (g.mem_total_mib ?? 0), 0);
+  const hot = live.filter((g) => g.temp_c != null).sort((a, b) => b.temp_c - a.temp_c)[0];
+  const stat = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  return [
+    stat("GPUs reporting", `${live.length} <small>of ${gpus.length}</small>`),
+    stat("busy (load 50 %+)", `${busy}`),
+    stat("held by a claim", `${held}`),
+    stat("drawing", `${Math.round(watts)} <small>W</small>`),
+    stat("VRAM in use", memT ? `${gib(memU)} <small>of ${gib(memT)} GiB</small>` : "n/a"),
+    stat("hottest", hot ? `${Math.round(hot.temp_c)} <small>C, ${esc(hot.card_name || hot.host)}</small>` : "n/a"),
+  ].join("");
+}
+
+let data = null;
+function hover(ev) {
+  const box = ev.target.closest(".chart[data-chart]");
+  document.querySelectorAll(".chart .tip").forEach((t) => { if (!box || t.parentNode !== box) t.remove(); });
+  document.querySelectorAll(".chart .cross").forEach((c) => { if (!box || !box.contains(c)) c.setAttribute("visibility", "hidden"); });
+  if (!box || !data) return;
+  const g = data.gpus[+box.dataset.chart], pts = g.history;
+  const r = box.querySelector("svg").getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+  const t = pts[0].t + f * (pts[pts.length - 1].t - pts[0].t);
+  const p = pts.reduce((a, b) => Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a);
+  const fx = (p.t - pts[0].t) / Math.max(1, pts[pts.length - 1].t - pts[0].t);
+  const cross = box.querySelector(".cross");
+  cross.setAttribute("x1", 300 * fx); cross.setAttribute("x2", 300 * fx); cross.setAttribute("visibility", "visible");
+  let tip = box.querySelector(".tip");
+  if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.append(tip); }
+  const m = pct(p.mem_used, p.mem_total);
+  // Keep the tip inside the tile: anchored at its left edge near the start, its right near the end.
+  tip.style.left = `${fx * 100}%`;
+  tip.style.transform = `translate(${fx < 0.3 ? 0 : fx > 0.7 ? -100 : -50}%, -100%)`;
+  tip.textContent = `${clock(p.t)} · load ${p.util == null ? "n/a" : Math.round(p.util) + " %"} · memory ${m == null ? "n/a" : Math.round(m) + " %"}` +
+    (p.power != null ? ` · ${Math.round(p.power)} W` : "") + (p.temp != null ? ` · ${Math.round(p.temp)} C` : "");
+}
+document.addEventListener("mousemove", hover);
+document.addEventListener("mouseleave", hover);
+
+async function load() {
+  try {
+    const r = await fetch("/api/gauges?minutes=60", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    data = await r.json();
+    const now = data.time;
+    $("#totals").innerHTML = totals(data.gpus);
+    $("#grid").innerHTML = data.gpus.length ? data.gpus.map((g, i) => tile(g, i, now)).join("") : `<p class="empty">No GPUs reported yet.</p>`;
+    $("#meta").textContent = `${data.gpus.length} GPU${data.gpus.length === 1 ? "" : "s"} · updated ${clock(now)}`;
+  } catch (e) {
+    $("#meta").innerHTML = `<span class="err">not updated: ${esc(e.message)}</span>`;
+  }
+}
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

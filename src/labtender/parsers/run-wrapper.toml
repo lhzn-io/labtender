@@ -1,0 +1,46 @@
+# One folder per run, made by a launcher script:
+#
+#   <run>/stdout.log   the job's output, with a progress line now and then
+#   <run>/args         how it was launched, for example "--config base.toml --hours 48"
+#   <run>/device       the CUDA pin, for example "CUDA_VISIBLE_DEVICES=1"
+#   <run>/status       written when the run ends: its exit status
+#
+# A progress line looks like:
+#
+#   step 30000 | time 36.0 h | speed 10.0 h/h
+#
+# where time is how far the job has got (simulated or logical time) and speed is that time per
+# hour of wall clock.
+#
+# Point a watch at the run folders: labtender watch add <host> run-wrapper '~/runs/*/'
+
+name = "run-wrapper"
+description = "A folder per run with an output log, its launch arguments and an exit status"
+log = "stdout.log"
+markers = ["args", "device"]
+stale_after_min = 30      # a running log silent for longer than this is shown as stale
+max_age_h = 72            # ignore folders untouched for longer than this
+max_dirs = 8              # newest folders per watch
+
+[progress]
+# Named groups: t (time so far), t_unit, rate, and optionally iter.
+regex = 'step (?P<iter>\d+) \| time (?P<t>[\d.]+) (?P<t_unit>s|min|h|d) \| speed (?P<rate>[\d.]+) h/h'
+rate = "sim_h_per_wall_h"   # or "wall_min_per_sim_h"
+
+# Where the end time comes from, tried in order.
+[[target]]
+marker = "args"
+regex = '--hours (?P<value>[\d.]+)'
+unit = "hours"
+
+[[target]]
+dirname = '_(?P<value>\d+)h_'
+unit = "hours"
+
+[done]
+marker = "status"         # its content is the exit status
+line = "DONE"             # or a final line in the log
+
+[card]
+marker = "device"
+regex = 'CUDA_VISIBLE_DEVICES=(?P<card>\d+)'

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender prices</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
+    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
+      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --accent: #6ea8ea;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Thin scrollbars in the board's colours (standard property first, WebKit for Safari). */
+  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
+  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
+  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 14px 16px 6px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  header h1 a { color: inherit; text-decoration: none; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header button { font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 6px; cursor: pointer;
+                  border: 1px solid var(--line); background: var(--track); color: var(--ink); }
+  main { display: grid; gap: 12px; padding: 8px 16px 24px;
+         grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 15px; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .tile { display: flex; gap: 24px; flex-wrap: wrap; align-items: baseline; }
+  .hero { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat { font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px 4px 0;
+       border-bottom: 1px solid var(--line); }
+  td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num { text-align: right; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  .badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
+  .ready { color: var(--ok); } .off { color: var(--muted); }
+  svg.trend { width: 120px; height: 24px; display: block; }
+  .empty { color: var(--muted); font-size: 12px; }
+  .err { color: var(--bad); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">labtender</a> · prices</h1>
+  <span class="meta" id="meta">loading</span>
+  <button id="refresh" title="Quote every watched GPU now (an operator token is needed)">Refresh quotes</button>
+</header>
+<main id="cards"></main>
+<script src="/auth.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (v, d = 2) => (v == null ? "-" : `$${Number(v).toFixed(d)}`);
+function ago(t, now) {
+  if (!t) return "never";
+  const s = now - t;
+  return s < 120 ? `${Math.round(s)} s ago` : s < 7200 ? `${Math.round(s / 60)} min ago` : `${(s / 3600).toFixed(1)} h ago`;
+}
+const when = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+// One provider's cheapest price over the sampled history: a single series, so no legend; the
+// row it sits in names it. Each point carries a hover readout.
+function trend(points) {
+  if (!points || points.length < 2) return `<span class="sub">after the next sample</span>`;
+  const w = 120, h = 24, pad = 3;
+  const t0 = points[0][0], t1 = points[points.length - 1][0];
+  const vs = points.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs);
+  const x = (t) => pad + (t - t0) / Math.max(1, t1 - t0) * (w - 2 * pad);
+  const y = (v) => hi === lo ? h / 2 : h - pad - (v - lo) / (hi - lo) * (h - 2 * pad);
+  const line = points.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
+  const dots = points.map((p) => `<circle cx="${x(p[0]).toFixed(1)}" cy="${y(p[1]).toFixed(1)}" r="5" fill="transparent"><title>${esc(when(p[0]))}: ${money(p[1], 3)}/h</title></circle>`).join("");
+  const last = points[points.length - 1];
+  return `<svg class="trend" viewBox="0 0 ${w} ${h}" role="img" aria-label="cheapest price over time, from ${money(lo, 3)} to ${money(hi, 3)} per hour">` +
+    `<polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" points="${line}"/>` +
+    `<circle cx="${x(last[0]).toFixed(1)}" cy="${y(last[1]).toFixed(1)}" r="2.5" fill="var(--accent)"/>${dots}</svg>`;
+}
+
+function runRateCard(r) {
+  const yachts = r.yachts ? `${r.yachts} yacht${r.yachts > 1 ? "s" : ""} out` : "no yachts out";
+  return `<section class="card"><h2>Run rate</h2>
+    <div class="tile">
+      <div><div class="hero">${money(r.rate_usd_h, r.rate_usd_h && r.rate_usd_h < 10 ? 3 : 2)}/h</div><div class="sub">${yachts}, right now</div></div>
+      <div class="stat"><div>${money(r.month_spent_usd)}</div><div class="sub">spent this month</div></div>
+      <div class="stat"><div>${money(r.month_worst_case_usd)}</div><div class="sub">month at most, if every live yacht ran to its time limit</div></div>
+    </div></section>`;
+}
+
+function gpuCard(g) {
+  if (!g.providers.length) {
+    return `<section class="card"><h2>${esc(g.gpu)}</h2><div class="empty">no quotes yet</div></section>`;
+  }
+  const rows = g.providers.map((p) => {
+    const c = p.cheapest;
+    const ready = p.launchable ? `<span class="badge ready">ready</span>` : `<span class="badge off">not set up</span>`;
+    return `<tr><td>${esc(p.provider)}</td><td>${esc(c.region)}${p.regions > 1 ? ` <span class="sub">+${p.regions - 1}</span>` : ""}</td>
+      <td class="num">${money(c.rate_usd_h, 3)}/h</td><td>${ready}</td><td>${trend(p.trend)}</td></tr>`;
+  }).join("");
+  return `<section class="card"><h2>${esc(g.gpu)} <span class="sub">via ${esc(g.plugin)}</span></h2>
+    <table><thead><tr><th>provider</th><th>cheapest region</th><th class="num">price</th><th>status</th><th>last 30 days</th></tr></thead>
+    <tbody>${rows}</tbody></table></section>`;
+}
+
+async function load() {
+  try {
+    const v = await (await fetch("/api/prices", { cache: "no-store" })).json();
+    $("#cards").innerHTML = runRateCard(v.run_rate) + (v.gpus.map(gpuCard).join("") ||
+      `<section class="card"><div class="empty">Nothing on the watch list: add charter profiles, or list GPUs in prices.toml.</div></section>`);
+    $("#meta").textContent = `quotes sampled ${ago(v.sampled_at, v.time)} · on-demand list prices from each plugin's catalog`;
+  } catch (e) {
+    $("#meta").textContent = `labtender service unreachable (${e.message})`;
+  }
+}
+
+$("#refresh").addEventListener("click", async () => {
+  $("#meta").textContent = "quoting...";
+  const r = await ltFetch("/api/prices/refresh", { method: "POST" });
+  if (!r.ok) {
+    $("#meta").innerHTML = `<span class="err">refresh refused: ${esc((await r.json()).detail)}</span>`;
+    return;
+  }
+  load();
+});
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

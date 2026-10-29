@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender purser</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
+    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
+      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --accent: #6ea8ea;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Thin scrollbars in the board's colours (standard property first, WebKit for Safari). */
+  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
+  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
+  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 14px 16px 6px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  header h1 a, header a { color: inherit; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--track); color: var(--ink); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; gap: 12px; padding: 8px 16px 24px;
+         grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .charter { border-top: 1px solid var(--line); padding: 10px 0; }
+  .charter:first-of-type { border-top: 0; padding-top: 0; }
+  .charter h3 { font-size: 14px; margin: 0 0 4px; }
+  .facts { display: flex; gap: 18px; flex-wrap: wrap; font-variant-numeric: tabular-nums; margin: 6px 0; }
+  .facts div span { display: block; color: var(--muted); font-size: 11px; }
+  .why { color: var(--warn); font-size: 12px; margin: 4px 0; }
+  .stale { color: var(--warn); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px 4px 0;
+       border-bottom: 1px solid var(--line); }
+  td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  .scroll { overflow-x: auto; }
+  input[type=number] { width: 72px; font: inherit; font-size: 12px; padding: 1px 4px;
+                       border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); }
+  .badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
+  .low { color: var(--bad); } .fine { color: var(--ok); }
+  .cheaper { color: var(--ok); } .dearer { color: var(--bad); }
+  .empty { color: var(--muted); font-size: 12px; }
+  .err { color: var(--bad); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">labtender</a> · purser</h1>
+  <span class="meta" id="meta">loading</span>
+  <a class="meta" href="/prices">prices</a>
+</header>
+<main id="cards"></main>
+<script src="/auth.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (v, d = 2) => (v == null ? "-" : `$${Number(v).toFixed(d)}`);
+const when = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+function ago(t, now) {
+  const s = now - t;
+  return s < 120 ? `${Math.round(s)} s ago` : s < 7200 ? `${Math.round(s / 60)} min ago` : `${(s / 3600).toFixed(1)} h ago`;
+}
+const STALE_S = 3600;  // a quote older than this is worth renewing before approving
+let editing = null;     // the project whose limits are open for editing
+let view = null;
+
+async function call(method, path, body, role = "purser") {
+  $("#meta").textContent = "working...";
+  const r = await ltFetch(path, { method, body: body ? JSON.stringify(body) : undefined }, role);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    $("#meta").innerHTML = `<span class="err">${esc(data.detail || r.statusText)}</span>`;
+    return null;
+  }
+  await load();
+  return data;
+}
+
+function marketHtml(c) {
+  if (!c.market.length) return `<div class="sub">No sampled prices for ${esc(c.offer.gpu)} yet: see the prices page.</div>`;
+  const rows = c.market.map((p) => {
+    const r = p.cheapest.rate_usd_h, d = (r - c.rate_usd_h) / c.rate_usd_h;
+    const diff = Math.abs(d) < 0.005 ? "same" : `<span class="${d < 0 ? "cheaper" : "dearer"}">${d > 0 ? "+" : ""}${(d * 100).toFixed(0)}%</span>`;
+    return `<tr><td>${esc(p.provider)}${p.launchable ? "" : ` <span class="sub">(not set up)</span>`}</td><td>${esc(p.cheapest.region)}</td>
+      <td class="num">${money(r, 3)}/h</td><td class="num">${diff}</td></tr>`;
+  }).join("");
+  return `<div class="scroll"><table><thead><tr><th>market now</th><th>cheapest region</th><th class="num">price</th><th class="num">vs this quote</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function waitingCard(v) {
+  const body = v.waiting.length ? v.waiting.map((c) => {
+    const age = v.time - c.quoted_at;
+    const quoted = `<span class="${age > STALE_S ? "stale" : ""}">${ago(c.quoted_at, v.time)}</span>`;
+    return `<div class="charter">
+      <h3>#${c.id} ${esc(c.profile)} <span class="sub">for ${esc(c.requester)} (${esc(c.requester_kind)}), project ${esc(c.project)}</span></h3>
+      ${c.note ? `<div>${esc(c.note)}</div>` : ""}
+      <div class="facts">
+        <div><span>GPU</span>${esc(c.offer.gpu)}</div>
+        <div><span>where</span>${esc(c.offer.provider)} ${esc(c.offer.region)}</div>
+        <div><span>rate</span>${money(c.rate_usd_h, 3)}/h</div>
+        <div><span>worst case</span>${money(c.worst_usd)}</div>
+        <div><span>limits</span>${c.max_hours} h, idle ${c.idle_min} min</div>
+        <div><span>quoted</span>${quoted}</div>
+      </div>
+      ${c.why_not.length ? `<div class="why">Not pre-approved: ${c.why_not.map(esc).join("; ")}</div>` : ""}
+      ${marketHtml(c)}
+      <div class="actions">
+        <button class="primary" data-act="approve" data-id="${c.id}"${age > STALE_S ? ` title="The quote is over an hour old: re-quote first"` : ""}>Approve ${money(c.worst_usd)}</button>
+        <button data-act="requote" data-id="${c.id}">Re-quote</button>
+        <button class="danger" data-act="reject" data-id="${c.id}">Reject</button>
+      </div></div>`;
+  }).join("") : `<div class="empty">Nothing is waiting.</div>`;
+  return `<section class="card wide"><h2>Waiting for a purser</h2>${body}</section>`;
+}
+
+const LIMITS = [
+  ["monthly_usd", "monthly cap", "$"], ["per_charter_usd", "pre-approve up to", "$"],
+  ["daily_usd", "pre-approved a day", "$"], ["weekly_usd", "pre-approved a week", "$"],
+  ["pre_max_hours", "pre-approved hours", "h"], ["pre_idle_min", "pre-approved idle", "min"],
+];
+function budgetsCard(v) {
+  const rows = v.budgets.map((u) => {
+    const l = u.limits, r = u.reserved;
+    if (editing === u.project) {
+      const cells = LIMITS.map(([k]) => `<td class="num"><input type="number" min="0" step="any" name="${k}" value="${l[k]}"></td>`).join("");
+      return `<tr data-project="${esc(u.project)}"><td>${esc(u.project)}</td>${cells}
+        <td><button class="primary" data-act="save">Save</button> <button data-act="cancel">Cancel</button></td></tr>`;
+    }
+    const cells = LIMITS.map(([k, , unit]) => {
+      const v2 = unit === "$" ? money(l[k]) : `${l[k]} ${unit}`;
+      const used = k === "monthly_usd" ? r.monthly_usd : k === "daily_usd" ? r.daily_usd : k === "weekly_usd" ? r.weekly_usd : null;
+      return `<td class="num">${used != null ? `${money(used)} of ` : ""}${v2}</td>`;
+    }).join("");
+    return `<tr><td>${esc(u.project)}<div class="sub">${money(u.month_actual_usd)} spent this month</div></td>${cells}
+      <td><button data-act="edit" data-project="${esc(u.project)}">Edit</button></td></tr>`;
+  }).join("");
+  const head = LIMITS.map(([, label]) => `<th class="num">${label}</th>`).join("");
+  return `<section class="card wide"><h2>Budgets</h2>
+    <div class="sub">Reserved counts every active charter at its worst case, and ended ones at their actual cost. The monthly cap holds for every charter, pre-approved or not.</div>
+    <div class="scroll"><table><thead><tr><th>project</th>${head}<th></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+}
+
+function providersCard(v) {
+  const rows = v.providers.map((p) => `<tr><td>${esc(p.provider)}</td><td class="num">${money(p.balance_usd)}</td>
+    <td class="num">${money(p.committed_usd)}</td>
+    <td>${p.low ? `<span class="badge low">too low: top it up</span>` : `<span class="badge fine">enough</span>`}</td>
+    <td class="sub">${ago(p.checked_at, v.time)}</td></tr>`).join("");
+  return `<section class="card"><h2>Provider balances</h2>
+    ${rows ? `<table><thead><tr><th>provider</th><th class="num">balance</th><th class="num">active yachts may cost</th><th></th><th>checked</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">No prepaid balance read yet: one is read at each launch, and every 5 minutes while yachts run.</div>`}
+    <div class="sub">A prepaid provider stops every machine when its balance runs out, and their disks are lost.</div></section>`;
+}
+
+function detail(e) {
+  const d = e.detail || {};
+  switch (e.action) {
+    case "charter.request": return `${esc(d.profile)}, worst ${money(d.worst_usd)}${d.approval ? `, ${esc(d.approval)}` : ", waits for a purser"}`;
+    case "charter.requote": case "charter.price-rose":
+      return `${money(d.old_rate_usd_h, 3)} to ${money(d.new_rate_usd_h, 3)}/h${d.at_launch ? " at launch" : ""}${e.action === "charter.price-rose" ? ", back to a purser" : ""}`;
+    case "charter.reject": case "charter.withdraw": return esc(d.reason || "");
+    case "budget.set": return Object.entries(d).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(", ");
+    case "provider.balance-low": return `balance ${money(d.balance_usd)} under ${money(d.committed_usd)}`;
+    default: return esc(d.approval || "");
+  }
+}
+function historyCard(v) {
+  const rows = v.history.map((e) => `<tr><td class="sub">${esc(when(e.t))}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td>
+    <td>${esc(e.subject || "")}</td><td>${detail(e)}</td></tr>`).join("");
+  return `<section class="card wide"><h2>History</h2>
+    ${rows ? `<div class="scroll"><table><thead><tr><th>when</th><th>who</th><th>what</th><th>on</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">No money events yet.</div>`}</section>`;
+}
+
+async function load() {
+  try {
+    view = await (await fetch("/api/purser", { cache: "no-store" })).json();
+    $("#cards").innerHTML = waitingCard(view) + budgetsCard(view) + providersCard(view) + historyCard(view);
+    const n = view.waiting.length;
+    $("#meta").textContent = `${n ? `${n} waiting` : "nothing waiting"} · updated ${new Date(view.time * 1000).toLocaleTimeString()}`;
+  } catch (e) {
+    $("#meta").textContent = `labtender service unreachable (${e.message})`;
+  }
+}
+
+$("#cards").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  const id = b.dataset.id, act = b.dataset.act;
+  if (act === "approve") {
+    const c = view.waiting.find((x) => String(x.id) === id);
+    if (!c) return;
+    if (view.time - c.quoted_at > STALE_S && !confirm("This quote is over an hour old. Approve at the quoted rate anyway? (It is re-quoted again at launch.)")) return;
+    await call("POST", `/api/charters/${id}/approve`, {});
+  } else if (act === "reject") {
+    const reason = prompt("Reason for rejecting (the requester sees it):");
+    if (reason === null) return;
+    await call("POST", `/api/charters/${id}/reject`, { reason });
+  } else if (act === "requote") {
+    b.disabled = true;
+    await call("POST", `/api/charters/${id}/requote`, null, "purser or the requester's");
+  } else if (act === "edit") {
+    editing = b.dataset.project; load();
+  } else if (act === "cancel") {
+    editing = null; load();
+  } else if (act === "save") {
+    const tr = b.closest("tr"), body = {};
+    tr.querySelectorAll("input").forEach((i) => { body[i.name] = Number(i.value); });
+    const done = await call("PUT", `/api/budgets/${encodeURIComponent(tr.dataset.project)}`, body);
+    if (done) { editing = null; load(); }
+  }
+});
+
+load();
+setInterval(() => { if (!editing) load(); }, 30000);
+</script>
+</body>
+</html>

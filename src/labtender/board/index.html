@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
+    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;
+    --util: #1f5fa8; --mem: #6b4fa0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
+      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --accent: #6ea8ea;
+      --util: #6ea8ea; --mem: #a88be0;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Thin scrollbars in the board's colours (standard property first, WebKit for Safari). */
+  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
+  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
+  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 14px 16px 6px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  main { display: grid; gap: 12px; padding: 8px 16px 24px;
+         grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); }
+  .host { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .host h2 { font-size: 15px; margin: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  .err { color: var(--bad); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  .gpu { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+  .gpu .title { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; }
+  .row { display: grid; grid-template-columns: 52px 1fr 92px; align-items: center; gap: 8px;
+         font-size: 12px; margin-top: 4px; }
+  .row .lab { color: var(--muted); }
+  .row .val { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 4px; }
+  .facts { color: var(--muted); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  svg.spark { width: 100%; height: 22px; display: block; margin-top: 4px; }
+  .procs { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; }
+  .procs li { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .procs b { color: var(--ink); font-weight: 600; }
+  .runs { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+  .run { margin-top: 6px; font-size: 12px; }
+  .run .top { display: flex; justify-content: space-between; gap: 8px; }
+  .run .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
+  .s-running { color: var(--ok); } .s-stale { color: var(--warn); }
+  .s-exited { color: var(--bad); } .s-done, .s-gone { color: var(--muted); }
+  .run .bar > i { background: var(--accent); }
+  .empty { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .run .name a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); }
+  .run .name a:hover { text-decoration-color: var(--accent); }
+  .ledger { font-size: 12px; margin-top: 6px; padding: 5px 7px; border-radius: 6px;
+            background: var(--track); }
+  .ledger .who { font-weight: 600; }
+  .ledger .wait { color: var(--muted); }
+  .ledger .flag { color: var(--warn); }
+  .ledger .late { color: var(--bad); }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; }
+  #yachts { margin: 0 16px 24px; }
+  .charter .detail { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 11px;
+                     max-height: 220px; overflow: auto; margin: 4px 0 0; }
+  .yachts details > summary { margin-top: 8px; }
+  .charter .step { color: var(--accent); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .charter pre.detail { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  #yachts:empty { display: none; }
+  .yachts h2 { font-size: 15px; margin: 0 0 4px; }
+  .charter { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; font-size: 12px; }
+  .charter .top { display: flex; justify-content: space-between; gap: 8px; }
+  .s-live, .s-approved, .s-launching { color: var(--ok); } .s-requested, .s-landing { color: var(--warn); }
+  .s-adrift, .s-failed { color: var(--bad); } .s-destroyed, .s-rejected, .s-withdrawn { color: var(--muted); }
+  .adrift { color: var(--bad); font-weight: 600; }
+  .charter button { font: inherit; font-size: 12px; margin: 4px 6px 0 0; padding: 2px 10px; border-radius: 6px;
+                    border: 1px solid var(--line); background: var(--track); color: var(--ink); cursor: pointer; }
+  .svcs { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .svcs .up { color: var(--ok); } .svcs .down { color: var(--bad); font-weight: 600; }
+  .svcs a { color: inherit; }
+  .budget { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header><h1>labtender</h1><span class="meta" id="meta">loading</span><a class="meta" href="/gauges">gauges</a><a class="meta" href="/prices">prices</a><a class="meta" href="/purser">purser</a></header>
+<main id="hosts"></main>
+<div id="yachts"></div>
+<script src="/auth.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (v) => (v == null ? null : Math.max(0, Math.min(100, v)));
+function ago(t, now) {
+  if (!t) return "never";
+  const s = now - t;
+  return s < 120 ? `${Math.round(s)} s ago` : s < 7200 ? `${Math.round(s / 60)} min ago` : `${(s / 3600).toFixed(1)} h ago`;
+}
+function dur(s) {
+  if (s == null) return "-";
+  const m = Math.round(s / 60), h = Math.floor(m / 60);
+  return h ? `${h} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
+}
+function clock(t) {
+  const d = new Date(t * 1000), now = new Date();
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === now.toDateString() ? hm : `${d.toLocaleDateString([], { weekday: "short" })} ${hm}`;
+}
+function bar(v, color) {
+  const p = pct(v);
+  return `<div class="bar"><i style="width:${p ?? 0}%;background:${color}"></i></div>`;
+}
+function spark(points) {
+  if (!points || points.length < 2) return "";
+  const t0 = points[0].t, t1 = points[points.length - 1].t, w = 300, h = 22;
+  const xy = points.filter((p) => p.util != null)
+    .map((p) => `${((p.t - t0) / Math.max(1, t1 - t0) * w).toFixed(1)},${(h - 1 - (p.util / 100) * (h - 2)).toFixed(1)}`);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="GPU load, last hour">` +
+    `<polyline fill="none" stroke="var(--util)" stroke-width="1.5" vector-effect="non-scaling-stroke" points="${xy.join(" ")}"/></svg>`;
+}
+const history = {};
+const openDetails = new Set();
+document.addEventListener("toggle", (e) => {
+  const k = e.target.dataset?.key;
+  if (k) e.target.open ? openDetails.add(k) : openDetails.delete(k);
+  if (e.target.open && e.target.dataset?.log) loadLog(e.target.dataset.log);
+}, true);
+// A charter's set-up, sync and landing output, fetched while its log panel is open. Operators only:
+// the output can name private paths, so it needs a sign-in or a token (see auth.js).
+const logs = {};
+async function loadLog(id, ask = true) {
+  const r = await ltFetch(`/api/charters/${id}/log?limit=6000`, {}, "operator", ask);
+  if (!r.ok) {
+    logs[id] = `log not available: ${(await r.json().catch(() => ({}))).detail || r.statusText}`;
+  } else {
+    logs[id] = (await r.json()).tail || "nothing logged yet";
+  }
+  const pre = document.querySelector(`pre[data-log-for="${id}"]`);
+  if (pre) { pre.textContent = logs[id]; pre.scrollTop = pre.scrollHeight; }
+}
+function ledgerHtml(l, now) {
+  if (!l) return "";
+  const kind = (c) => (c.owner_kind === "agent" ? "agent" : "person");
+  const holds = l.holders.map((c) => {
+    const until = c.est_end ? ` until ${clock(c.est_end)} (${esc(c.est_source)})` : ", no estimate";
+    const share = c.share ? ` · shared: ${esc(c.share)}` : "";
+    const late = c.frozen ? ` <span class="wait">· paused: ${esc(c.frozen)}</span>`
+      : c.late ? ` <span class="late">· heartbeat late</span>` : "";
+    return `<div><span class="who">${esc(c.owner)}</span> (${kind(c)}, ${esc(c.tier)})${until}${share}${late}</div>`;
+  }).join("");
+  const free = l.holders.length ? "" : `<div>free</div>`;
+  const queue = l.queue.map((c) => {
+    const when = c.state === "offered" ? "offered now" : c.est_start ? `from ${clock(c.est_start)}` : "after an open-ended hold";
+    return `${esc(c.owner)} (${esc(c.tier)}, ${when})`;
+  }).join(", ");
+  const flags = (l.flags || []).map((f) => `<div class="flag">${esc(f.kind.replace("-", " "))}: ${esc(f.detail)}</div>`).join("");
+  return `<div class="ledger">${holds}${free}${queue ? `<div class="wait">waiting: ${queue}</div>` : ""}${flags}</div>`;
+}
+function windowsHtml(list) {
+  if (!list || !list.length) return "";
+  const gib = (m) => (m / 1024).toFixed(1);
+  const parts = list.filter((p) => p.kind !== "desktop")
+    .map((p) => `<b>${p.kind === "wsl" ? "WSL VM" : esc(p.name)}</b> ${Math.round(p.util_pct)} %, ${gib(p.mem_mib)} GiB`);
+  const desk = list.filter((p) => p.kind === "desktop");
+  if (desk.length) {
+    const mem = desk.reduce((s, p) => s + (p.mem_mib || 0), 0);
+    const top = desk.reduce((a, p) => (p.util_pct > (a?.util_pct ?? -1) ? p : a), null);
+    parts.push(`${desk.length} desktop app${desk.length > 1 ? "s" : ""} ${gib(mem)} GiB` +
+      (top && top.util_pct >= 1 ? ` (${esc(top.name)} ${Math.round(top.util_pct)} %)` : ""));
+  }
+  return `<div class="facts">Windows: ${parts.join(" · ")}</div>`;
+}
+function gpuHtml(host, g, now) {
+  const memPct = g.mem_total_mib ? 100 * (g.mem_used_mib ?? 0) / g.mem_total_mib : null;
+  const mem = g.mem_total_mib ? `${((g.mem_used_mib ?? 0) / 1024).toFixed(1)} / ${(g.mem_total_mib / 1024).toFixed(0)} GiB` : "n/a";
+  const facts = [
+    g.temp_c != null ? `${Math.round(g.temp_c)} C` : null,
+    g.power_w != null ? `${g.power_w.toFixed(0)}${g.power_limit_w ? " / " + g.power_limit_w.toFixed(0) : ""} W` : null,
+    g.clock_mhz != null ? `${g.clock_mhz} MHz` : null,
+    g.uuid ? `<span title="${esc(g.uuid)}">${esc(g.uuid.replace(/^GPU-/, "").slice(0, 8))}</span>` : null,
+    g.unified ? "unified memory" : null,
+    g.display_active ? "drives a display" : null,
+    g.source,
+  ].filter(Boolean).join(" · ");
+  const procs = (g.procs || []).map((p) =>
+    `<li><b>${esc(p.comm)}</b> pid ${p.pid}, ${dur(p.elapsed_s)}${p.rss_kb ? `, ${(p.rss_kb / 1048576).toFixed(1)} GiB RSS` : ""} <span title="${esc(p.cmdline)}">${esc(p.cmdline)}</span></li>`).join("");
+  return `<div class="gpu">
+    <div class="title"><span>GPU ${g.index} · ${g.card_name ? `<b title="${esc(g.uuid)}">${esc(g.card_name)}</b> · ` : ""}${esc(g.name)}</span></div>
+    <div class="row"><span class="lab">load</span>${bar(g.util_pct, "var(--util)")}<span class="val">${g.util_pct == null ? "n/a" : g.util_pct.toFixed(0) + " %"}</span></div>
+    <div class="row"><span class="lab">memory</span>${bar(memPct, "var(--mem)")}<span class="val">${mem}</span></div>
+    ${spark(history[`${host}/${g.index}`])}
+    <div class="facts">${facts}</div>
+    ${windowsHtml(g.windows_procs)}
+    ${ledgerHtml(g.ledger, now)}
+    ${procs ? `<ul class="procs">${procs}</ul>` : ""}
+  </div>`;
+}
+function runHtml(r, now) {
+  const p = r.pct;
+  const where = r.card != null ? ` · GPU ${r.card}` : "";
+  const t = r.t_h != null && r.target_h ? `${r.t_h.toFixed(1)} / ${r.target_h.toFixed(0)} sim h` : "";
+  const rate = r.wall_min_per_sim_h ? ` · pace ${r.wall_min_per_sim_h.toFixed(1)} min per h` : "";
+  const eta = r.state === "running" && r.finish_at ? ` · done ${clock(r.finish_at)} (in ${dur(r.finish_at - now)})` : "";
+  const code = r.exit_code != null ? ` · exit ${r.exit_code}` : "";
+  return `<div class="run">
+    <div class="top"><span class="name" title="${esc(r.dir)}">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}</span><span class="badge s-${esc(r.state)}">${esc(r.state)}</span></div>
+    <div class="row"><span class="lab">${p == null ? "?" : p.toFixed(0) + " %"}</span>${bar(p, "var(--accent)")}<span class="val">log ${ago(r.last_log_at, now)}</span></div>
+    <div class="facts">${t}${rate}${eta}${code}${where}</div>
+  </div>`;
+}
+function servicesHtml(h, now) {
+  const checks = h.service_health || {};
+  const names = Object.keys(h.services || {}).sort();
+  if (!names.length) return "";
+  const parts = names.map((n) => {
+    const c = checks[n], url = (h.services_active || {})[n] || h.services[n];
+    const name = `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(n)}</a>`;
+    if (!c) return name;
+    const via = c.ok && c.base && c.base !== h.services[n] ? ` via ${esc(new URL(c.base).host)}` : "";
+    return c.ok
+      ? `${name} <span class="up" title="${esc(c.detail)}, checked ${ago(c.checked_at, now)}">up${via}</span>`
+      : `${name} <span class="down" title="${esc(c.url)}">down since ${clock(c.changed_at)}: ${esc(c.detail)}</span>`;
+  });
+  return `<div class="svcs">services: ${parts.join(" · ")}</div>`;
+}
+// Bytes per second as the network rate a person reads: kB/s, MB/s.
+function rate(bps) {
+  return bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : bps >= 1e3 ? `${(bps / 1e3).toFixed(0)} kB/s` : `${bps} B/s`;
+}
+function hostHtml(h, now) {
+  const info = h.host || {};
+  const memUsed = info.mem_total_kb ? ((info.mem_total_kb - (info.mem_avail_kb ?? 0)) / 1048576).toFixed(0) : null;
+  const sub = [info.platform, info.cpu_model, info.cpu_busy_pct != null ? `CPU ${info.cpu_busy_pct.toFixed(0)} %` : null,
+    memUsed ? `RAM ${memUsed} / ${(info.mem_total_kb / 1048576).toFixed(0)} GiB` : null,
+    info.net_rx_bps != null ? `net in ${rate(info.net_rx_bps)}, out ${rate(info.net_tx_bps)}` : null,
+    info.disk_free_b != null ? `disk ${(info.disk_free_b / 2 ** 30).toFixed(0)} GiB free` : null,
+    h.lifecycle === "charter" ? `chartered yacht, ${h.labels.provider} at $${h.labels.rate_usd_h}/h` : null,
+    h.lifecycle !== "static" && h.expires_at ? `expires in ${dur(h.expires_at - now)}` : null].filter(Boolean).join(" · ");
+  const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
+  const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
+  const all = [...(h.runs || [])].sort((a, b) =>
+    (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.last_log_at ?? 0) - (a.last_log_at ?? 0));
+  const live = all.filter((r) => r.state === "running");
+  const ended = all.filter((r) => r.state !== "running");
+  const key = `ended:${h.name}`;
+  const runs = live.map((r) => runHtml(r, now)).join("") + (ended.length
+    ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="sub">${ended.length} earlier run${ended.length > 1 ? "s" : ""}</summary>${ended.map((r) => runHtml(r, now)).join("")}</details>`
+    : "");
+  return `<section class="host">
+    <h2><span class="dot ${h.online ? "on" : ""}"></span>${esc(h.name)} <span class="sub">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, probe ${h.probe_ms} ms` : ""}</span></h2>
+    <div class="sub">${esc(sub)}</div>
+    ${servicesHtml(h, now)}
+    ${h.last_error ? `<div class="err">${esc(h.last_error)}</div>` : ""}
+    ${(h.gpus || []).map((g) => gpuHtml(h.name, g, now)).join("") || `<div class="empty">no GPU reported</div>`}
+    ${unplaced ? `<ul class="procs">${unplaced}</ul>` : ""}
+    ${runs ? `<div class="runs">${runs}</div>` : ""}
+  </section>`;
+}
+const money = (v) => (v == null ? "-" : `$${Number(v).toFixed(2)}`);
+function charterHtml(c, now) {
+  const o = c.offer || {};
+  const live = ["live", "landing", "adrift", "launching"].includes(c.state);
+  const facts = [
+    `${esc(o.provider)} ${esc(o.region)}`, esc(c.accelerators || o.gpu || ""),
+    `${money(c.rate_usd_h)}/h`, `up to ${c.max_hours} h (worst ${money(c.worst_usd)})`,
+    `idle limit ${c.idle_min} min`,
+    live ? `${money(c.cost_so_far)} so far` : c.cost_usd != null ? `cost ${money(c.cost_usd)}` : null,
+    live && c.ends_by ? `ends by ${clock(c.ends_by)}` : null,
+    c.host ? `host ${esc(c.host)}` : null,
+  ].filter(Boolean).join(" · ");
+  const why = c.state === "requested" ? `<div class="wait">waiting for a purser: labtender charter approve ${c.id}</div>
+    <button data-act="approve" data-id="${c.id}">Approve</button><button data-act="reject" data-id="${c.id}">Reject</button>` : "";
+  const adrift = c.state === "adrift" ? `<div class="adrift">destroy failed, retrying: ${esc(summarize(c.last_error))}</div>` : "";
+  const ended = !live && c.end_reason ? ` · ${esc(summarize(c.end_reason))}` : "";
+  const err = cleanError(c.last_error);
+  const key = `charter-error:${c.id}`;
+  const detail = err && summarize(err) !== err
+    ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="sub">error details</summary><div class="detail">${esc(err)}</div></details>` : "";
+  const p = c.progress;
+  const step = p ? `<div class="step">${esc(p.phase)}: step ${p.step} of ${p.steps}${p.label ? `, ${esc(p.label)}` : ""} · this step ${dur(now - p.step_at)}, ${esc(p.phase)} ${dur(now - p.phase_at)} so far</div>` : "";
+  const lkey = `charter-log:${c.id}`;
+  const log = c.ref ? `<details data-key="${esc(lkey)}" data-log="${c.id}"${openDetails.has(lkey) ? " open" : ""}><summary class="sub">log</summary><pre class="detail" data-log-for="${c.id}">${esc(logs[c.id] ?? "loading...")}</pre></details>` : "";
+  return `<div class="charter">
+    <div class="top"><span><b>charter ${c.id}</b> ${esc(c.profile)} for ${esc(c.requester)}${c.approval ? ` (${esc(c.approval)})` : ""}</span><span class="badge s-${esc(c.state)}">${esc(c.state)}</span></div>
+    <div class="facts">${facts}${ended}</div>${c.note ? `<div class="facts">${esc(c.note)}</div>` : ""}${step}${adrift}${why}${detail}${log}
+  </div>`;
+}
+// Provider errors arrive with terminal colour codes and pages of retry detail; the board shows
+// one line (capacity shortages by zone) and keeps the rest a click away.
+const cleanError = (t) => String(t ?? "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\[[0-9;]*m/g, "").trim();
+function summarize(t) {
+  const text = cleanError(t);
+  const prefix = text.startsWith("launch failed: ") ? "launch failed: " : "";
+  const zones = [...new Set([...text.matchAll(/Failed to acquire resources in (\S+) for/g)].map((m) => m[1]))];
+  if (zones.length || ["RESOURCE_POOL_EXHAUSTED", "Failed to provision all possible launchable resources"].some((w) => text.includes(w))) return `${prefix}no capacity${zones.length ? " in " + zones.join(", ") : ""}`;
+  const first = text.split("\n").find((l) => l.trim()) || "";
+  return first.length > 160 ? first.slice(0, 157) + "..." : first;
+}
+function budgetHtml(u) {
+  const r = u.reserved, l = u.limits;
+  return `<div class="budget">${esc(u.project)}: month ${money(r.monthly_usd)} of ${money(l.monthly_usd)} reserved (${money(u.month_actual_usd)} spent) · pre-approved today ${money(r.daily_usd)} of ${money(l.daily_usd)}, this week ${money(r.weekly_usd)} of ${money(l.weekly_usd)}, up to ${money(l.per_charter_usd)} each</div>`;
+}
+const ACTIVE_CHARTER = ["requested", "approved", "launching", "live", "landing", "adrift"];
+function yachtsHtml(s) {
+  const charters = s.charters || [];
+  if (!charters.length) return "";
+  const active = charters.filter((c) => ACTIVE_CHARTER.includes(c.state));
+  const ended = charters.filter((c) => !ACTIVE_CHARTER.includes(c.state));
+  const spent = ended.reduce((t, c) => t + (c.cost_usd || 0), 0);
+  const key = "ended:charters";
+  const endedHtml = ended.length
+    ? `<details data-key="${key}"${openDetails.has(key) ? " open" : ""}><summary class="sub">${ended.length} ended charter${ended.length > 1 ? "s" : ""} in the last day, ${money(spent)}</summary>${ended.map((c) => charterHtml(c, s.time)).join("")}</details>`
+    : "";
+  const none = active.length ? "" : `<div class="empty">No yachts out.</div>`;
+  const r = s.run_rate;
+  const rate = r && r.yachts ? `<div class="budget">now ${money(r.rate_usd_h)}/h for ${r.yachts} yacht${r.yachts > 1 ? "s" : ""} · <a href="/prices">prices</a></div>` : "";
+  // A prepaid provider stops its machines (and loses their disks) when the balance runs out.
+  const bal = (s.providers || []).map((p) => `<div class="budget${p.low ? " wait" : ""}">${esc(p.provider)} balance ${money(p.balance_usd)}${p.committed_usd ? ` · active yachts may still cost ${money(p.committed_usd)}` : ""}${p.low ? " · <b>too low: top it up</b>" : ""}</div>`).join("");
+  return `<section class="host yachts"><h2>Yachts</h2>${rate}${bal}${(s.budgets || []).map(budgetHtml).join("")}${none}${active.map((c) => charterHtml(c, s.time)).join("")}${endedHtml}</section>`;
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const body = b.dataset.act === "reject" ? JSON.stringify({ reason: prompt("Reason for rejecting:") || "" }) : undefined;
+  const r = await ltFetch(`/api/charters/${b.dataset.id}/${b.dataset.act}`, { method: "POST", body }, "purser");
+  if (!r.ok) {
+    alert(`${b.dataset.act} failed: ${(await r.json()).detail}`);
+  }
+  refresh();
+});
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/state", { cache: "no-store" })).json();
+    await Promise.all(s.hosts.flatMap((h) => (h.gpus || []).map(async (g) => {
+      const r = await fetch(`/api/history/${encodeURIComponent(h.name)}/${g.index}?minutes=60`, { cache: "no-store" });
+      if (r.ok) history[`${h.name}/${g.index}`] = await r.json();
+    })));
+    $("#yachts").innerHTML = yachtsHtml(s);
+    // Open log panels follow along, without ever prompting from a background refresh.
+    [...openDetails].filter((k) => k.startsWith("charter-log:")).forEach((k) => loadLog(k.split(":")[1], false));
+    $("#hosts").innerHTML = s.hosts.map((h) => hostHtml(h, s.time)).join("") ||
+      `<div class="empty">No hosts yet. Add one with: labtender host add &lt;name&gt;</div>`;
+    $("#meta").textContent = `${s.hosts.filter((h) => h.online).length} of ${s.hosts.length} hosts live · updated ${new Date(s.time * 1000).toLocaleTimeString()}`;
+  } catch (e) {
+    $("#meta").textContent = `labtender service unreachable (${e.message})`;
+  }
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

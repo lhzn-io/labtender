@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "labtender"
+dynamic = ["version"]
+description = "An agentless lab board and GPU claim ledger for mixed fleets of workstations, Jetsons, Macs and budget-capped cloud GPUs, shared by people and AI agents."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Long Horizon Observatory" }]
+requires-python = ">=3.11"
+keywords = [
+    "gpu", "lab", "fleet", "monitoring", "scheduling", "reservation", "jetson", "wsl",
+    "apple-silicon", "mcp", "ai-agents", "skypilot", "cloud-gpu", "finops",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Framework :: FastAPI",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "mcp>=2.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]
+docs = [
+    "sphinx>=8",
+    "myst-parser>=4",
+    "furo>=2024.8",
+    "sphinxcontrib-mermaid>=1.0",
+    "sphinx-autobuild>=2024.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/lhzn-io/labtender"
+Documentation = "https://github.com/lhzn-io/labtender/tree/main/docs/src"
+Issues = "https://github.com/lhzn-io/labtender/issues"
+
+[project.scripts]
+labtender = "labtender.cli:main"
+
+[tool.hatch.version]
+path = "src/labtender/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/labtender"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares dependencies and headers as argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header"]
+
+[tool.ruff.lint.per-file-ignores]
+# The probe runs on the node's own python3, which may be as old as 3.8.
+"src/labtender/probe.py" = ["UP", "B905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

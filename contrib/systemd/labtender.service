@@ -1,0 +1,15 @@
+# systemd user unit for the labtender service. Install: see docs/src/service.md.
+[Unit]
+Description=labtender service (lab board and GPU claim ledger)
+After=network-online.target
+
+[Service]
+Type=simple
+# Use the labtender on your PATH (for example from `uv tool install labtender`).
+ExecStart=%h/.local/bin/labtender serve --port 8795
+Restart=on-failure
+RestartSec=10
+# Optional: Environment=LABTENDER_HOME=%h/.config/labtender
+
+[Install]
+WantedBy=default.target

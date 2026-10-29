@@ -1,0 +1,3 @@
+# Windows batch files need CRLF line endings; everything else is LF.
+*.cmd text eol=crlf
+* text=auto

@@ -1,0 +1,39 @@
+# A job that writes its own log folder, for example
+#
+#   <logs>/<case>-<timestamp>/run.log
+#
+# with its planned length near the top ("duration_h = 48") and a progress line now and then:
+#
+#   [12:28:14] step=8000 time=11.1h speed=1.7h/h
+#
+# The run is done when it writes a DONE file in its folder, or reaches its planned length; it is
+# stale when the log falls silent first. A job extended after it starts writes its new length
+# (in hours) to a duration_h file in its folder, which takes precedence over the log.
+# Point a watch at the log folders:
+#   labtender watch add <host> run-logdir '~/jobs/logs/*/'
+
+name = "run-logdir"
+description = "A job's own log folder, its planned length at the top and progress lines below"
+log = "run.log"
+markers = ["duration_h"]
+head_bytes = 8192          # where the planned length is read from
+stale_after_min = 30
+max_age_h = 72
+max_dirs = 8
+
+[progress]
+regex = 'step=(?P<iter>\d+) time=(?P<t>[\d.]+)(?P<t_unit>s|min|h|d) speed=(?P<rate>[\d.]+)h/h'
+rate = "sim_h_per_wall_h"
+
+[[target]]
+marker = "duration_h"
+regex = '^\s*(?P<value>[\d.]+)'
+unit = "hours"
+
+[[target]]
+head = 'duration_h\s*=\s*(?P<value>[\d.]+)'
+unit = "hours"
+
+[done]
+file = "DONE"            # written when the job finishes
+at_target = true

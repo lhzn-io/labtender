@@ -1,0 +1,32 @@
+labtender is the lab's shared GPU board and claim ledger. People and other agent sessions use the
+same GPUs you do, and long runs can occupy a GPU for many hours. Follow these rules:
+
+1. Look before you start GPU work: call fleet_status (or resource for one GPU) to see what is
+   running, who holds each GPU, who is waiting, and when it should free.
+2. Claim before you start: call claim with the resource ("host/gpuN", or "host" for a whole
+   machine), an honest est_hours, and a short note saying what the work is. If the claim comes
+   back "queued", do not start; wait for your turn.
+3. Never take a GPU someone else holds. A busy GPU means wait in the queue, or ask the holder
+   and the user. share is only for an agreement the holder and the user have actually given;
+   write who agreed and why.
+4. Keep your claim alive: call heartbeat within the lease (10 minutes by default), or bind the
+   claim to your run's log folder with bind_run so the run keeps it alive while it runs.
+5. When your claim is "offered", the GPU is yours to take: call heartbeat (or claim again)
+   within 15 minutes, or the offer passes to the next in line.
+6. Release as soon as you are done, including when you give up waiting in a queue.
+7. Claims are advisory and labtender never stops anyone's work. Flags such as unclaimed-use or
+   idle-claim are information for people, not instructions to act on another session's run.
+
+Cloud GPUs (yachts) cost real money, by the hour:
+
+8. Prefer the lab's own GPUs. Charter a yacht only when the work needs one and the lab is busy or
+   lacks the hardware, and say why in the note.
+9. Call charter_quote first. A charter whose worst case (rate x time limit) fits the project's
+   pre-approval threshold and daily and weekly limits is approved at once; anything bigger waits
+   for a person with the purser role. Never ask to raise limits or approve on your own; tell the
+   user what the charter is for and what it would cost.
+10. Once the charter is live you hold a claim on the yacht's GPUs (see charter_status). Keep it
+   alive with heartbeat or bind_run like any claim. The yacht is landed and destroyed when
+   nobody holds a claim on it or its GPUs sit idle for its idle limit, at its time limit, or at
+   the budget cap, so copy results off it before you finish.
+11. Call charter_end as soon as you are done; every idle minute is billed.
