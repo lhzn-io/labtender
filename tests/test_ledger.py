@@ -253,3 +253,26 @@ def test_claim_changes_reconcile_at_once(ledger, store, clock):
     ledger.tick()  # the claim expires: the flag comes back without waiting for a probe
     assert ledger.claim(c["id"])["state"] == "expired"
     assert [f["kind"] for f in ledger.flags("box/gpu0")] == ["unclaimed-use"]
+
+
+def test_a_run_bound_while_queued_takes_up_the_offer(ledger, store, clock):
+    first = ledger.request("box/gpu0", "a", "agent", lease_s=600)
+    waiting = ledger.request("box/gpu0", "b", "agent", pickup_s=900)
+    ledger.bind_run(waiting["id"], "b", "/runs/next")  # started early, before its turn
+    ledger.release(first["id"], "a")
+    c = ledger.claim(waiting["id"])
+    assert c["state"] == "held" and c["pending_run"] == "/runs/next"
+    clock.advance(1000)  # past the pickup window: nothing lapses
+    ledger.tick()
+    assert ledger.claim(waiting["id"])["state"] == "held"
+    held = [e for e in store.events() if e["action"] == "claim.held"]
+    assert any(e["actor"] == "labtender" and e["detail"]["claim"] == waiting["id"] for e in held)
+
+
+def test_binding_an_offered_claim_takes_it_up(ledger, store, clock):
+    first = ledger.request("box/gpu0", "a", "agent", lease_s=600)
+    waiting = ledger.request("box/gpu0", "b", "agent")
+    ledger.release(first["id"], "a")
+    assert ledger.claim(waiting["id"])["state"] == "offered"
+    ledger.bind_run(waiting["id"], "b", "/runs/next")
+    assert ledger.claim(waiting["id"])["state"] == "held"

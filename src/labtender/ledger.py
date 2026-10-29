@@ -157,6 +157,10 @@ class Ledger:
             self.store.audit(
                 "labtender", "claim.offered", resource, claim=head["id"], owner=head["owner"]
             )
+            if head["pending_run"] or head["run_key"]:
+                # A run was bound to it while it waited, so the run is starting or running
+                # already: the offer is taken up on its behalf rather than left to lapse.
+                self._hold(head, "labtender")
 
     def _hold(self, c: dict, actor: str) -> None:
         now = self.now()
@@ -337,7 +341,10 @@ class Ledger:
         return row["key"] if row else None
 
     def bind_run(self, claim_id: int, actor: str, run_dir: str) -> dict:
-        """Tie a held claim to a watched run, whose liveness then counts as heartbeats.
+        """Tie a claim to a watched run, whose liveness then counts as heartbeats.
+
+        Binding takes up an offer, and a queued claim with a run bound to it takes up its offer
+        as soon as it comes: the run has evidently started.
 
         A run wrapper usually binds right after starting the run, before the next probe has seen
         its folder. Such a bind waits: the claim is kept alive for up to BIND_WAIT_S while the
@@ -345,6 +352,8 @@ class Ledger:
         """
         with self.store.tx():
             c = self._owned(claim_id, actor, False)
+            if c["state"] == "offered":
+                self._hold(c, actor)  # binding a run to an offered claim takes the offer up
             key = self._find_run(c["host"], run_dir)
             now = self.now()
             if key is None:
