@@ -115,9 +115,16 @@ MIGRATIONS = (
     ("host", "fallbacks", "TEXT NOT NULL DEFAULT '{}'"),
     ("service_health", "base", "TEXT"),
     ("gpu_sample", "uuid", "TEXT"),
+    ("card", "hold", "TEXT"),  # why it is held back from agents; NULL when offered
+    ("card", "bandwidth_gbs", "REAL"),  # set by a person, for a model the table lacks
 )
 SERVICE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 CARD_NAME = SERVICE_NAME
+
+
+def card_key(host: str, idx: int, uuid: str | None) -> str:
+    """A card's key: its UUID, or for a GPU with none (an Apple GPU) its fixed place."""
+    return uuid or f"local:{host}/gpu{idx}"
 
 
 def check_services(services: dict) -> dict:
@@ -590,10 +597,8 @@ class Store:
 
     def _track_card(self, host: str, g: dict, now: float) -> None:
         """Note where a card is now, auditing a move to another host or index."""
-        uuid = g.get("uuid")
-        if not uuid:
-            return  # no stable id (for example a unified-memory GPU): nothing to follow
         idx = g.get("index", 0)
+        uuid = card_key(host, idx, g.get("uuid"))
         old = self.conn.execute("SELECT * FROM card WHERE uuid = ?", (uuid,)).fetchone()
         if old is None:
             self.conn.execute(
@@ -644,6 +649,29 @@ class Store:
                 return c
         hits = [c for c in cards if len(ref) >= 8 and c["uuid"].startswith(ref)]
         return hits[0] if len(hits) == 1 else None
+
+    def card_at(self, host: str, idx: int, uuid: str | None = None) -> dict | None:
+        """The card at host/gpuN: by its UUID, or by its place for a GPU that has none."""
+        return self.card(card_key(host, idx, uuid))
+
+    def set_card(self, uuid: str, *, actor: str, **changes) -> dict:
+        """Hold a card back from agents (hold = the reason, or None to offer it again), or give
+        its memory bandwidth (bandwidth_gbs, None for the published figure)."""
+        unknown = set(changes) - {"hold", "bandwidth_gbs"}
+        if unknown:
+            raise ValueError(f"unknown card settings: {', '.join(sorted(unknown))}")
+        if "hold" in changes:
+            changes["hold"] = (changes["hold"] or "").strip()[:200] or None
+        bw = changes.get("bandwidth_gbs")
+        if bw is not None and not 0 < bw <= 100_000:
+            raise ValueError("bandwidth_gbs must be positive, in GB/s")
+        with self.tx():
+            if not self.card(uuid):
+                raise ValueError(f"no card {uuid}")
+            for k, v in changes.items():
+                self.conn.execute(f"UPDATE card SET {k} = ? WHERE uuid = ?", (v, uuid))
+            self.audit(actor, "card.set", uuid, **changes)
+        return self.card(uuid)
 
     def name_card(self, uuid: str, name: str | None, *, actor: str) -> dict:
         """Rename a card; the name follows it between hosts. None or "" gives back its own name."""

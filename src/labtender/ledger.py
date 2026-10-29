@@ -227,6 +227,12 @@ class Ledger:
                 if c["state"] == "offered":
                     self._hold(c, owner)
                 return self.claim(c["id"])
+            held_back = card is not None and self.store.card_at(host_name, card, uuid)
+            if held_back and held_back["hold"] and owner_kind == "agent":
+                raise LedgerError(
+                    f"{resource} is held back from agents ({held_back['hold']});"
+                    " only a person can claim it"
+                )
             rows = self.claims(resource)
             holders = [c for c in rows if c["state"] in ("held", "offered")]
             waiting = [c for c in rows if c["state"] == "queued"]

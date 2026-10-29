@@ -41,10 +41,10 @@ missing role or a forced release by an agent, 404 for an unknown host, 409 for a
 | `DELETE /api/hosts/{name}` | Remove a host (admin). |
 | `GET /api/runs?host=&dir=` | Runs from the last 72 h; `dir` picks one run folder exactly (with or without a trailing slash). Each run carries a `link` when its host has a run-link template. |
 | `GET /api/history/{host}/{card}?minutes=60` | GPU samples (load, memory, power, temperature), up to 24 h. |
-| `GET /api/gauges?minutes=60` | Every GPU on every host in one answer, for the gauges page: `host`, `index`, `card_name`, `model`, `online`, latest load, memory, power and limit, temperature and clock, `procs`, `holders`, `queued`, and `history` (samples over the window, up to 24 h). A GPU missing from its host's latest probe is listed with `away: true`. |
+| `GET /api/gauges?minutes=60` | Every GPU on every host in one answer, for the gauges page, grouped by `kind` (`discrete`, `integrated`, `apple`; listed in `groups`) and ranked by `bandwidth_gbs` within a group: `host`, `index`, `card_name`, `hold`, `model`, `online`, latest load, memory, power and limit, temperature and clock, `procs`, `holders`, `queued`, and `history` (samples over the window, up to 24 h). A GPU missing from its host's latest probe is listed with `away: true`. |
 | `GET /api/events?limit=100` | The audit trail, newest first. |
-| `GET /api/cards` | Every GPU with a stable id: `uuid`, `name`, `model`, and where it was last seen (`host`, `idx`, `last_seen`). |
-| `PUT /api/cards/{card}` | Rename a card (admin), found by name, `host/gpuN` or UUID: body `name` (empty gives back the name made from its UUID). The name follows the card between hosts. |
+| `GET /api/cards` | Every card: `uuid` (`local:host/gpuN` for a GPU with none), `name`, `model`, where it was last seen (`host`, `idx`, `last_seen`), `hold` (why it is held back from agents, or null) and `bandwidth_gbs` (a figure a person gave, or null for the published one). |
+| `PUT /api/cards/{card}` | Change a card (admin), found by name, `host/gpuN` or UUID. Body fields, each optional: `name` (empty gives back the name made from its UUID; the name follows the card between hosts), `hold` (a reason holds it back from agents, null offers it again) and `bandwidth_gbs` (null for the published figure). |
 
 ## Ledger
 

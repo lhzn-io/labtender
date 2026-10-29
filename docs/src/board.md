@@ -130,7 +130,7 @@ rate of live yachts. See [](yachts.md).
 :alt: The gauges page: one tile per GPU with round gauges for load, memory, power and temperature
 :width: 100%
 
-The gauges page for the same fictional lab.
+The gauges page for the same fictional lab, grouped by kind and ranked by memory bandwidth.
 ```
 
 The header links to `/gauges`: every GPU on every host on one page, for a wall screen or a
@@ -142,6 +142,14 @@ and 90 C, with the label saying so. A GPU missing from its host's latest probe s
 Totals across the lab sit on top: GPUs reporting, busy and held, power drawn, memory in use and the
 hottest card. The page refreshes every 15 s; readings are as fresh as each host's probe interval
 (45 s by default, `labtender host set NAME --interval`).
+
+Tiles are grouped by kind: discrete GPUs, integrated GPUs whose memory is shared with the host
+(Jetson and similar), and Apple GPUs. Within a group they are ranked by memory bandwidth, shown on
+each tile, rather than by memory size: an integrated GPU reports all of the host's memory and would
+otherwise rank above discrete cards several times faster. Bandwidth comes from a table of published
+figures; for a model it does not know (laptop parts among them), give it with
+`labtender card bandwidth CARD GBS`. `/gauges?group=none` lists every GPU in one grid by host
+instead. A card held back from agents (see [](ledger.md)) says so on its tile and on the board.
 
 ## The compact view
 

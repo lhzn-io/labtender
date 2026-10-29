@@ -24,6 +24,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
+from . import gpukinds
 from .charter import CharterError, Charters, is_purser, public
 from .collector import Collector
 from .db import Store, default_home
@@ -158,6 +159,8 @@ class ReasonIn(BaseModel):
 
 class CardIn(BaseModel):
     name: str | None = None
+    hold: str | None = None
+    bandwidth_gbs: float | None = None
 
 
 class BudgetIn(BaseModel):
@@ -187,10 +190,11 @@ HOST_FIELDS = (
 
 
 def gauge_view(store: Store, ledger: Ledger, now: float, minutes: float = 60) -> list[dict]:
-    """Every GPU in the lab, host by host: its latest readings, who holds it, and its history.
+    """Every GPU in the lab: its latest readings, who holds it, and its history.
 
-    GPUs a host reported today but not in its latest probe are listed as away (unless the card
-    has turned up elsewhere, where it is listed instead).
+    GPUs are grouped by kind (discrete, integrated, Apple) and ranked by memory bandwidth within
+    a group. GPUs a host reported today but not in its latest probe are listed as away (unless
+    the card has turned up elsewhere, where it is listed instead).
     """
     history = store.history_all(now - 60 * max(1.0, min(minutes, 24 * 60)))
     out = []
@@ -200,14 +204,14 @@ def gauge_view(store: Store, ledger: Ledger, now: float, minutes: float = 60) ->
         snap = store.snapshot(name) or {}
         procs = snap.get("gpu_procs", [])
         for g in snap.get("gpus", []):
-            card = store.card(g.get("uuid"))
+            card = store.card_at(name, g["index"], g.get("uuid"))
             view = ledger.resource_view(f"{name}/gpu{g['index']}")
             out.append(
                 {
                     "host": name,
                     "index": g["index"],
                     "uuid": g.get("uuid") or None,
-                    "card_name": card["name"] if card else None,
+                    **card_fields(card, g.get("name"), g.get("unified")),
                     "model": g.get("name"),
                     "online": online,
                     "probed_at": h["last_seen"],
@@ -238,7 +242,7 @@ def gauge_view(store: Store, ledger: Ledger, now: float, minutes: float = 60) ->
                     "host": name,
                     "index": idx,
                     "uuid": card["uuid"] if card else None,
-                    "card_name": card["name"] if card else None,
+                    **card_fields(card, card["model"] if card else None, None),
                     "model": card["model"] if card else None,
                     "online": online,
                     "away": True,
@@ -249,7 +253,18 @@ def gauge_view(store: Store, ledger: Ledger, now: float, minutes: float = 60) ->
                     "history": [],
                 }
             )
-    return out
+    return sorted(out, key=gpukinds.rank_key)
+
+
+def card_fields(card: dict | None, model: str | None, unified: bool | None) -> dict:
+    """A GPU's card name, kind, bandwidth and hold, for the board and the gauges."""
+    bw = card.get("bandwidth_gbs") if card else None
+    return {
+        "card_name": card["name"] if card else None,
+        "kind": gpukinds.kind(model, unified),
+        "bandwidth_gbs": bw or gpukinds.bandwidth_gbs(model),
+        "hold": card.get("hold") if card else None,
+    }
 
 
 def host_view(store: Store, ledger: Ledger, h: dict, now: float) -> dict:
@@ -261,10 +276,10 @@ def host_view(store: Store, ledger: Ledger, h: dict, now: float) -> dict:
         procs = snap.get("gpu_procs", [])
         for g in snap.get("gpus", []):
             res = f"{h['name']}/gpu{g['index']}"
-            card = store.card(g.get("uuid"))
+            card = store.card_at(h["name"], g["index"], g.get("uuid"))
             g = dict(
                 g,
-                card_name=card["name"] if card else None,
+                **card_fields(card, g.get("name"), g.get("unified")),
                 procs=[p for p in procs if p.get("card") == g["index"]],
                 ledger=ledger.resource_view(res),
             )
@@ -511,7 +526,11 @@ def create_app(
     @app.get("/api/gauges")
     async def gauges(minutes: float = 60) -> dict:
         now = time.time()
-        return {"time": now, "gpus": gauge_view(store, ledger, now, minutes)}
+        return {
+            "time": now,
+            "groups": [{"kind": k, "label": label} for k, label in gpukinds.GROUPS],
+            "gpus": gauge_view(store, ledger, now, minutes),
+        }
 
     @app.get("/api/events")
     async def events(limit: int = 100) -> list[dict]:
@@ -522,12 +541,18 @@ def create_app(
         return store.cards()
 
     @app.put("/api/cards/{ref:path}")
-    async def name_card(ref: str, body: CardIn, who: dict = Depends(admin)) -> dict:
+    async def set_card(ref: str, body: CardIn, who: dict = Depends(admin)) -> dict:
         card = store.find_card(ref)
         if card is None:
             raise HTTPException(404, f"no card {ref}")
+        given = body.model_fields_set or {"name"}  # an empty body gives back its own name
         try:
-            return store.name_card(card["uuid"], body.name, actor=who["identity"])
+            if "name" in given:
+                card = store.name_card(card["uuid"], body.name, actor=who["identity"])
+            changes = {k: getattr(body, k) for k in ("hold", "bandwidth_gbs") if k in given}
+            if changes:
+                card = store.set_card(card["uuid"], actor=who["identity"], **changes)
+            return card
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
 

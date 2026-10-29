@@ -367,6 +367,8 @@ def main() -> None:
     for name in ("gpu-box", "ws-laptop", "jetson-1", "mac-studio"):
         snap = store.snapshot(name)
         ledger.reconcile(name, snap)
+    mac = store.find_card("mac-studio/gpu0")
+    store.set_card(mac["uuid"], hold="kept for notebooks and model serving", actor=admin)
     services(store, ledger)
     charters(store, ledger, home)
     print(f"demo lab written to {db}")

@@ -84,6 +84,10 @@ def fleet_summary(state: dict) -> dict:
             cards.append(
                 {
                     "name": g.get("name"),
+                    "card_name": g.get("card_name"),
+                    "kind": g.get("kind"),
+                    "bandwidth_gbs": g.get("bandwidth_gbs"),
+                    "held_back_from_agents": g.get("hold"),
                     "util_pct": g.get("util_pct"),
                     "mem_used_gib": round(g["mem_used_mib"] / 1024, 1)
                     if g.get("mem_used_mib") is not None

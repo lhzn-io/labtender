@@ -117,6 +117,32 @@ def test_two_cards_with_the_same_made_name_are_told_apart(tmp_path, monkeypatch)
     assert store.name_card("GPU-2", "", actor="a")["name"] == "calm-heron-2"
 
 
+def test_a_held_back_card_refuses_agents_but_not_people(tmp_path):
+    store = Store(tmp_path / "t.sqlite")
+    ledger = Ledger(store, clock=Clock())
+    store.add_host("box", actor="a")
+    store.add_host("mac", actor="a")
+    store.record_probe("box", {"gpus": [{"index": 0, "uuid": "GPU-slow"}], "gpu_procs": []}, [])
+    store.record_probe("mac", {"gpus": [{"index": 0, "unified": True}], "gpu_procs": []}, [])
+    early = ledger.request("box/gpu0", "a", "agent", lease_s=600)
+    store.set_card("GPU-slow", hold="slow for long jobs", actor="p")
+    with pytest.raises(LedgerError, match="held back from agents .slow for long jobs."):
+        ledger.request("box/gpu0", "b", "agent")
+    assert ledger.request("box/gpu0", "a", "agent")["id"] == early["id"]  # already in, stays in
+    assert ledger.request("box/gpu0", "dana", "person")["state"] == "queued"
+    # A GPU with no UUID is a card by its place, so it can be held back too.
+    mac = store.card_at("mac", 0)
+    assert mac["uuid"] == "local:mac/gpu0" and mac["name"]
+    store.set_card(mac["uuid"], hold="not for agents", actor="p")
+    with pytest.raises(LedgerError, match="held back"):
+        ledger.request("mac/gpu0", "b", "agent")
+    store.set_card("GPU-slow", hold=None, actor="p")
+    assert ledger.request("box/gpu0", "b", "agent")["state"] == "queued"
+    assert [e["action"] for e in store.events()].count("card.set") == 3
+    with pytest.raises(ValueError, match="bandwidth"):
+        store.set_card("GPU-slow", bandwidth_gbs=-1, actor="p")
+
+
 def test_unreachable_host_pauses_claims(store):
     clock = Clock()
     ledger = Ledger(store, clock=clock)

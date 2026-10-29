@@ -190,6 +190,7 @@ function gpuHtml(host, g, now) {
     g.clock_mhz != null ? `${g.clock_mhz} MHz` : null,
     g.uuid ? `<span title="${esc(g.uuid)}">${esc(g.uuid.replace(/^GPU-/, "").slice(0, 8))}</span>` : null,
     g.unified ? "unified memory" : null,
+    g.bandwidth_gbs ? `${Math.round(g.bandwidth_gbs)} GB/s` : null,
     g.display_active ? "drives a display" : null,
     g.source,
   ].filter(Boolean).join(" · ");
@@ -201,6 +202,7 @@ function gpuHtml(host, g, now) {
     <div class="row"><span class="lab">memory</span>${bar(memPct, "var(--mem)")}<span class="val">${mem}</span></div>
     ${spark(history[`${host}/${g.index}`])}
     <div class="facts">${facts}</div>
+    ${g.hold ? `<div class="facts" title="Agents cannot claim it; people can">held back from agents: ${esc(g.hold)}</div>` : ""}
     ${windowsHtml(g.windows_procs)}
     ${ledgerHtml(g.ledger, now)}
     ${procs ? `<ul class="procs">${procs}</ul>` : ""}

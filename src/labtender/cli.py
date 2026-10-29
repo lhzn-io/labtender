@@ -17,7 +17,7 @@ import secrets
 import sys
 import time
 
-from . import __version__, parsers
+from . import __version__, gpukinds, parsers
 from .client import Hub, HubError
 from .collector import Collector
 from .db import Store, default_home
@@ -184,10 +184,39 @@ def cmd_host_ls(a) -> None:
 def cmd_card_ls(a) -> None:
     for c in _store().cards():
         where = f"{c['host']}/gpu{c['idx']}"
+        bw = c["bandwidth_gbs"] or gpukinds.bandwidth_gbs(c["model"])
         print(
-            f"{c['name'] or '-':<14} {where:<18} {c['model'] or '':<32}"
-            f" seen {_age(c['last_seen'])}  {c['uuid']}"
+            f"{c['name'] or '-':<16} {where:<18} {c['model'] or '':<36}"
+            f" {f'{bw:g} GB/s' if bw else '':<10} seen {_age(c['last_seen'])}  {c['uuid']}"
+            + (f"\n{'':<16} held back from agents: {c['hold']}" if c["hold"] else "")
         )
+
+
+def _set_card(ref: str, **changes) -> dict:
+    store = _store()
+    card = store.find_card(ref)
+    if card is None:
+        sys.exit(f"no card {ref}; see labtender card ls")
+    try:
+        return store.set_card(card["uuid"], actor=_actor(), **changes)
+    except ValueError as e:
+        sys.exit(str(e))
+
+
+def cmd_card_hold(a) -> None:
+    c = _set_card(a.card, hold=a.reason)
+    print(f"{c['name']} is held back from agents: {c['hold']}")
+
+
+def cmd_card_offer(a) -> None:
+    c = _set_card(a.card, hold=None)
+    print(f"{c['name']} is offered to agents again")
+
+
+def cmd_card_bandwidth(a) -> None:
+    c = _set_card(a.card, bandwidth_gbs=a.gbs)
+    bw = c["bandwidth_gbs"] or gpukinds.bandwidth_gbs(c["model"])
+    print(f"{c['name']}: {f'{bw:g} GB/s' if bw else 'bandwidth unknown'}")
 
 
 def cmd_card_name(a) -> None:
@@ -648,6 +677,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("card", help="its name, where it is now (host/gpuN), or its UUID (or prefix)")
     s.add_argument("name", nargs="?", help="the new name; leave out for its own name back")
     s.set_defaults(fn=cmd_card_name)
+    s = card.add_parser("hold", help="hold a card back from agents; people can still claim it")
+    s.add_argument("card")
+    s.add_argument("reason", help="why, shown to agents, for example 'slow for simulations'")
+    s.set_defaults(fn=cmd_card_hold)
+    s = card.add_parser("offer", help="offer a held-back card to agents again")
+    s.add_argument("card")
+    s.set_defaults(fn=cmd_card_offer)
+    s = card.add_parser("bandwidth", help="a card's memory bandwidth, for ranking it")
+    s.add_argument("card")
+    s.add_argument("gbs", type=float, nargs="?", help="GB/s; leave out for the published figure")
+    s.set_defaults(fn=cmd_card_bandwidth)
 
     watch = sub.add_parser("watch", help="run folders to follow").add_subparsers(
         dest="sub", required=True

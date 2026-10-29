@@ -66,6 +66,9 @@
          font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
   .foot { color: var(--muted); font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; }
   .empty { color: var(--muted); }
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+  h2:first-child { margin-top: 0; }
+  .hold { color: var(--warn); font-size: 12px; margin: -3px 0 6px; }
   .err { color: var(--bad); }
 </style>
 </head>
@@ -74,10 +77,11 @@
   <h1><a href="/">labtender</a> · gauges</h1>
   <span class="meta" id="meta">loading</span>
   <a class="meta" href="/">board</a>
+  <a class="meta" id="grouping" href="?group=none">one list</a>
 </header>
 <main>
   <section class="totals" id="totals" aria-label="Lab totals"></section>
-  <section class="grid" id="grid" aria-label="GPUs"></section>
+  <div id="grid" aria-label="GPUs"></div>
 </main>
 <script>
 "use strict";
@@ -161,10 +165,13 @@ function tile(g, i, now) {
   const tcls = temp == null ? "" : temp >= VERY_HOT_C ? "bad" : temp >= HOT_C ? "warn" : "";
   const tword = tcls === "bad" ? "very hot" : tcls === "warn" ? "hot" : "";
   const tone = (cls) => cls ? `var(--${cls})` : "var(--ok)";
-  const sub = [g.card_name ? esc(g.model) : null, who + queue].filter(Boolean).join(" · ");
+  const bw = g.bandwidth_gbs ? `${Math.round(g.bandwidth_gbs)} GB/s` : null;
+  const sub = [g.card_name ? esc(g.model) : null, bw, who + queue].filter(Boolean).join(" · ");
+  const hold = g.hold ? `<div class="hold" title="Agents cannot claim it; people can">held back from agents: ${esc(g.hold)}</div>` : "";
   return `<div class="tile">
     <div class="top"><span class="dot ${g.online ? "on" : ""}" title="${g.online ? "reporting" : "host not answering"}"></span>${title}<span class="where">${where}</span></div>
-    <div class="sub">${sub}</div>
+    <div class="sub" title="${esc(sub.replace(/<[^>]+>/g, ""))}">${sub}</div>
+    ${hold}
     <div class="dials">
       ${dial({ label: "load", value: g.util_pct == null ? "n/a" : Math.round(g.util_pct), unit: g.util_pct == null ? "" : "%",
                frac: g.util_pct == null ? null : g.util_pct / 100, color: "var(--util)", of: g.clock_mhz != null ? `${g.clock_mhz} MHz` : "" })}
@@ -200,6 +207,22 @@ function totals(gpus) {
   ].join("");
 }
 
+// GPUs come grouped by kind (discrete, integrated, Apple) and ranked by memory bandwidth within
+// each group; ?group=none lists them in one grid by host instead.
+const FLAT = new URLSearchParams(location.search).get("group") === "none";
+function sections(d, now) {
+  const tiles = d.gpus.map((g, i) => [g, i]);
+  const grid = (list) => `<section class="grid">${list.map(([g, i]) => tile(g, i, now)).join("")}</section>`;
+  if (FLAT) {
+    return grid(tiles.sort(([a], [b]) => a.host.localeCompare(b.host) || a.index - b.index));
+  }
+  return (d.groups || []).map(({ kind, label }) => {
+    const list = tiles.filter(([g]) => g.kind === kind);
+    return list.length ? `<h2>${esc(label)} · ${list.length}</h2>${grid(list)}` : "";
+  }).join("") + grid(tiles.filter(([g]) => !(d.groups || []).some((x) => x.kind === g.kind)));
+}
+if (FLAT) { const a = document.getElementById("grouping"); a.href = "?"; a.textContent = "by kind"; }
+
 let data = null;
 function hover(ev) {
   const box = ev.target.closest(".chart[data-chart]");
@@ -233,7 +256,7 @@ async function load() {
     data = await r.json();
     const now = data.time;
     $("#totals").innerHTML = totals(data.gpus);
-    $("#grid").innerHTML = data.gpus.length ? data.gpus.map((g, i) => tile(g, i, now)).join("") : `<p class="empty">No GPUs reported yet.</p>`;
+    $("#grid").innerHTML = data.gpus.length ? sections(data, now) : `<p class="empty">No GPUs reported yet.</p>`;
     $("#meta").textContent = `${data.gpus.length} GPU${data.gpus.length === 1 ? "" : "s"} · updated ${clock(now)}`;
   } catch (e) {
     $("#meta").innerHTML = `<span class="err">not updated: ${esc(e.message)}</span>`;
