@@ -158,6 +158,10 @@ def test_board_and_shared_assets_are_served(tmp_path):
     font = c.get("/fonts/josefin-sans-latin-400-normal.woff2")
     assert font.status_code == 200 and font.content[:4] == b"wOF2"
     assert c.get("/fonts/..%2Fserver.py").status_code == 404
+    # Pages change with a deploy, without a restart: browsers ask again; fonts are kept.
+    assert c.get("/").headers["cache-control"] == "no-cache"
+    assert c.get("/common.js").headers["cache-control"] == "no-cache"
+    assert "max-age" in font.headers["cache-control"]
 
 
 def test_a_host_can_show_how_old_a_file_is(tmp_path):

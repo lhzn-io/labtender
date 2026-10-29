@@ -375,6 +375,15 @@ def create_app(
                 t.cancel()
 
     app = FastAPI(title="labtender", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def revalidate(request: Request, call_next):
+        # Pages and scripts are read from disk and change with a deploy, without a restart, so a
+        # browser asks again each time rather than keep an old copy. Fonts keep their week.
+        response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
     app.state.store = store
     app.state.ledger = ledger
     app.state.collector = collector
