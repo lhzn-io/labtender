@@ -3,20 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>labtender gauges</title>
+<title>labtender</title>
+<link rel="stylesheet" href="/common.css">
 <style>
-  :root {
-    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
-    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e;
-    --util: #1f5fa8; --mem: #6b4fa0;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
-      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62;
-      --util: #6ea8ea; --mem: #a88be0;
-    }
-  }
   * { box-sizing: border-box; }
   html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
   @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
@@ -29,7 +18,6 @@
          font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; padding: 14px 16px 6px; }
   header h1 { font-size: 17px; margin: 0; }
-  header h1 a { color: inherit; text-decoration: none; }
   header .meta { color: var(--muted); font-size: 12px; }
   header a.meta { text-decoration: none; } header a.meta:hover { text-decoration: underline; }
   main { padding: 6px 16px 20px; }
@@ -38,8 +26,10 @@
   .stat .k { color: var(--muted); font-size: 12px; }
   .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .stat .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px;
+  h2.group { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px;
           align-items: start; }
+  .hosts { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
   .dials { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
   .dial { text-align: center; min-width: 0; }
   .dial svg { width: 100%; max-width: 104px; display: block; margin: 0 auto -6px; }
@@ -48,15 +38,18 @@
   .dial .lbl { font-size: 12px; }
   .dial .lbl.warn { color: var(--warn); } .dial .lbl.bad { color: var(--bad); font-weight: 600; }
   .dial .of { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .tile, .hostcard, .yachts { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  #yachts .yachts { margin-top: 14px; }
+  #yachts-first .yachts { margin-bottom: 4px; }
   .tile.away { opacity: .6; }
-  .top { display: flex; gap: 6px; align-items: baseline; }
-  .top b { font-size: 14px; }
+  .tile > .top, .hostcard > .top { display: flex; gap: 6px; align-items: baseline; }
+  .tile > .top b, .hostcard > .top b { font-size: 14px; }
   .top .where { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--bad); flex: none; align-self: center; }
   .dot.on { background: var(--ok); }
   .sub { color: var(--muted); font-size: 12px; margin: 1px 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .sub .held { color: var(--ink); }
+  .hsub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .hold { color: var(--warn); font-size: 12px; margin: -3px 0 6px; }
   .chart { position: relative; margin-top: 8px; }
   .chart svg { width: 100%; height: 40px; display: block; overflow: visible; }
   .legend { display: flex; gap: 12px; color: var(--muted); font-size: 11px; margin-top: 2px; }
@@ -65,32 +58,36 @@
          background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px;
          font-size: 11px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
   .foot { color: var(--muted); font-size: 11px; margin-top: 4px; display: flex; justify-content: space-between; }
-  .empty { color: var(--muted); }
-  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
-  h2:first-child { margin-top: 0; }
-  .hold { color: var(--warn); font-size: 12px; margin: -3px 0 6px; }
-  .err { color: var(--bad); }
 </style>
 </head>
 <body>
 <header>
-  <h1><a href="/">labtender</a> · gauges</h1>
+  <h1>labtender</h1>
   <span class="meta" id="meta">loading</span>
-  <a class="meta" href="/">board</a>
   <a class="meta" id="grouping" href="?group=none">one list</a>
+  <a class="meta" href="/board">classic board</a>
+  <a class="meta" href="/compact">compact</a>
+  <a class="meta" href="/prices">prices</a>
+  <a class="meta" href="/purser">purser</a>
 </header>
 <main>
   <section class="totals" id="totals" aria-label="Lab totals"></section>
+  <div id="yachts-first"></div>
+  <h2 class="group">Hosts</h2>
+  <section class="grid hosts" id="hosts" aria-label="Hosts"></section>
   <div id="grid" aria-label="GPUs"></div>
+  <div id="yachts"></div>
 </main>
+<script src="/auth.js"></script>
+<script src="/common.js"></script>
 <script>
 "use strict";
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// The home page: the lab's hosts in a strip, then every GPU as a tile with round gauges, its
+// claims, processes and runs, grouped by kind and ranked by memory bandwidth, then the yachts.
 const HOT_C = 80, VERY_HOT_C = 90;  // temperature labels; the bar stays neutral below these
 const age = (s) => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
-const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const pct = (v, max) => v == null || !max ? null : Math.max(0, Math.min(100, 100 * v / max));
+const hm = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const share = (v, max) => v == null || !max ? null : Math.max(0, Math.min(100, 100 * v / max));
 const gib = (mib) => (mib / 1024).toFixed(1);
 
 // Near its ceiling a cost (memory, power, heat) turns amber, then red; the label says so too.
@@ -142,22 +139,28 @@ function chart(id, g) {
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Load and memory, last ${Math.round((t1 - t0) / 60)} minutes">
       <line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--line)" vector-effect="non-scaling-stroke"/>
       ${line((p) => p.util, "var(--util)")}
-      ${line((p) => pct(p.mem_used, p.mem_total), "var(--mem)")}
+      ${line((p) => share(p.mem_used, p.mem_total), "var(--mem)")}
       <line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
     </svg>
     <div class="legend"><span><i style="background:var(--util)"></i>load</span><span><i style="background:var(--mem)"></i>memory</span><span>last ${Math.round((t1 - t0) / 60)} min</span></div>
   </div>`;
 }
 
+function procsHtml(list) {
+  if (!list || !list.length) return "";
+  return `<ul class="procs">${list.map((p) =>
+    `<li><b>${esc(p.comm)}</b> pid ${p.pid}, ${dur(p.elapsed_s)}${p.rss_kb ? `, ${(p.rss_kb / 1048576).toFixed(1)} GiB RSS` : ""} <span title="${esc(p.cmdline)}">${esc(p.cmdline)}</span></li>`).join("")}</ul>`;
+}
+
 function tile(g, i, now) {
   const where = `${esc(g.host)}/gpu${g.index}`;
   const title = g.card_name ? `<b title="${esc(g.uuid || "")}">${esc(g.card_name)}</b>` : `<b>${esc(g.model || `GPU ${g.index}`)}</b>`;
-  const holders = (g.holders || []);
-  const who = holders.length ? `<span class="held">held by ${holders.map(esc).join(", ")}</span>` : "free";
-  const queue = g.queued ? `, ${g.queued} waiting` : "";
+  const hold = g.hold ? `<div class="hold" title="Agents cannot claim it; people can">held back from agents: ${esc(g.hold)}</div>` : "";
+  const claims = g.ledger ? ledgerHtml(g.ledger, now)
+    : (g.holders || []).length ? `<div class="ledger">held by ${g.holders.map(esc).join(", ")}</div>` : "";
   if (g.away) {
     return `<div class="tile away"><div class="top"><span class="dot"></span>${title}<span class="where">${where}</span></div>
-      <div class="sub">${g.card_name && g.model ? `${esc(g.model)} · ` : ""}away, last seen ${age(now - g.last_seen)} ago</div></div>`;
+      <div class="sub">${g.card_name && g.model ? `${esc(g.model)} · ` : ""}away, last seen ${age(now - g.last_seen)} ago</div>${hold}${claims}</div>`;
   }
   const memF = g.mem_total_mib ? (g.mem_used_mib ?? 0) / g.mem_total_mib : null;
   const pwrF = g.power_w != null && g.power_limit_w ? g.power_w / g.power_limit_w : null;
@@ -165,12 +168,13 @@ function tile(g, i, now) {
   const tcls = temp == null ? "" : temp >= VERY_HOT_C ? "bad" : temp >= HOT_C ? "warn" : "";
   const tword = tcls === "bad" ? "very hot" : tcls === "warn" ? "hot" : "";
   const tone = (cls) => cls ? `var(--${cls})` : "var(--ok)";
-  const bw = g.bandwidth_gbs ? `${Math.round(g.bandwidth_gbs)} GB/s` : null;
-  const sub = [g.card_name ? esc(g.model) : null, bw, who + queue].filter(Boolean).join(" · ");
-  const hold = g.hold ? `<div class="hold" title="Agents cannot claim it; people can">held back from agents: ${esc(g.hold)}</div>` : "";
+  const facts = [g.card_name ? esc(g.model) : null, g.bandwidth_gbs ? `${Math.round(g.bandwidth_gbs)} GB/s` : null,
+    g.display_active ? "drives a display" : null].filter(Boolean).join(" · ");
+  const runs = (g.runs || []).map((r) => runHtml(r, now)).join("");
+  const plist = procsHtml(g.proclist);
   return `<div class="tile">
     <div class="top"><span class="dot ${g.online ? "on" : ""}" title="${g.online ? "reporting" : "host not answering"}"></span>${title}<span class="where">${where}</span></div>
-    <div class="sub" title="${esc(sub.replace(/<[^>]+>/g, ""))}">${sub}</div>
+    <div class="sub" title="${esc(facts)}">${facts}</div>
     ${hold}
     <div class="dials">
       ${dial({ label: "load", value: g.util_pct == null ? "n/a" : Math.round(g.util_pct), unit: g.util_pct == null ? "" : "%",
@@ -184,7 +188,45 @@ function tile(g, i, now) {
                frac: temp == null ? null : temp / 100, color: tone(tcls), of: "", cls: tcls })}
     </div>
     ${chart(i, g)}
-    <div class="foot"><span>${g.procs ? `${g.procs} GPU process${g.procs > 1 ? "es" : ""}` : "no GPU processes"}</span><span>${g.online ? `updated ${age(now - g.probed_at)} ago` : `host silent ${age(now - g.probed_at)}`}</span></div>
+    ${claims}
+    ${runs}
+    ${plist}${windowsHtml(g.windows_procs)}
+    <div class="foot"><span>${plist ? "" : g.procs ? `${g.procs} GPU process${g.procs > 1 ? "es" : ""}` : "no GPU processes"}</span><span>${g.online ? `updated ${age(now - g.probed_at)} ago` : `host silent ${age(now - g.probed_at)}`}</span></div>
+  </div>`;
+}
+
+// One card per host: what is not about a single GPU (the machine, its services, probe errors,
+// host-wide claims, runs not on a GPU, and earlier runs).
+function hostCard(h, now) {
+  const info = h.host || {};
+  const memUsed = info.mem_total_kb ? ((info.mem_total_kb - (info.mem_avail_kb ?? 0)) / 1048576).toFixed(0) : null;
+  const facts = [info.platform, info.cpu_busy_pct != null ? `CPU ${info.cpu_busy_pct.toFixed(0)} %` : null,
+    memUsed ? `RAM ${memUsed} / ${(info.mem_total_kb / 1048576).toFixed(0)} GiB` : null,
+    info.net_rx_bps != null ? `net in ${rate(info.net_rx_bps)}, out ${rate(info.net_tx_bps)}` : null,
+    info.disk_free_b != null ? `disk ${(info.disk_free_b / 2 ** 30).toFixed(0)} GiB free` : null,
+    h.lifecycle === "charter" ? `chartered yacht, ${h.labels.provider} at $${h.labels.rate_usd_h}/h` : null,
+    h.lifecycle !== "static" && h.expires_at ? `expires in ${dur(h.expires_at - now)}` : null].filter(Boolean).join(" · ");
+  const roam = h.roaming ? ` <span class="badge roam" title="Reached at ${esc(info.reached_at)}, through ${esc(h.roaming)}">roaming · ${esc(h.roaming)}</span>` : "";
+  const errors = [h.last_error, ...(h.probe_errors || [])].filter(Boolean).map((e) => `<div class="err">${esc(e)}</div>`).join("");
+  const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
+  const onCard = new Set((h.gpus || []).map((g) => g.index));
+  const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
+  const all = [...(h.runs || [])].sort((a, b) =>
+    (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.last_log_at ?? 0) - (a.last_log_at ?? 0));
+  // Live runs on a GPU show on its tile; the rest are listed here.
+  const live = all.filter((r) => ["running", "stale"].includes(r.state) && !onCard.has(r.card));
+  const ended = all.filter((r) => !["running", "stale"].includes(r.state));
+  const key = `ended:${h.name}`;
+  const earlier = ended.length
+    ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="hsub">${ended.length} earlier run${ended.length > 1 ? "s" : ""}</summary>${ended.map((r) => runHtml(r, now)).join("")}</details>`
+    : "";
+  return `<div class="hostcard">
+    <div class="top"><span class="dot ${h.online ? "on" : ""}"></span><b>${esc(h.name)}</b>${roam}<span class="where">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, ${h.probe_ms} ms` : ""}</span></div>
+    <div class="hsub" title="${esc(info.cpu_model || "")}">${esc(facts)}</div>
+    ${servicesHtml(h, now)}${errors}
+    ${h.host_ledger ? ledgerHtml(h.host_ledger, now) : ""}
+    ${unplaced ? `<ul class="procs">${unplaced}</ul>` : ""}
+    ${live.map((r) => runHtml(r, now)).join("")}${earlier}
   </div>`;
 }
 
@@ -214,18 +256,35 @@ function sections(d, now) {
   const tiles = d.gpus.map((g, i) => [g, i]);
   const grid = (list) => `<section class="grid">${list.map(([g, i]) => tile(g, i, now)).join("")}</section>`;
   if (FLAT) {
-    return grid(tiles.sort(([a], [b]) => a.host.localeCompare(b.host) || a.index - b.index));
+    return `<h2 class="group">GPUs · ${tiles.length}</h2>` +
+      grid(tiles.sort(([a], [b]) => a.host.localeCompare(b.host) || a.index - b.index));
   }
   return (d.groups || []).map(({ kind, label }) => {
     const list = tiles.filter(([g]) => g.kind === kind);
-    return list.length ? `<h2>${esc(label)} · ${list.length}</h2>${grid(list)}` : "";
+    return list.length ? `<h2 class="group">${esc(label)} · ${list.length}</h2>${grid(list)}` : "";
   }).join("") + grid(tiles.filter(([g]) => !(d.groups || []).some((x) => x.kind === g.kind)));
 }
 if (FLAT) { const a = document.getElementById("grouping"); a.href = "?"; a.textContent = "by kind"; }
 
+// The gauges come from /api/gauges (sorted, with history); each GPU's claims, processes and runs
+// from /api/state, joined by host and index.
+function join(state, gauges) {
+  const hosts = Object.fromEntries(state.hosts.map((h) => [h.name, h]));
+  for (const g of gauges.gpus) {
+    const h = hosts[g.host];
+    const s = (h?.gpus || []).find((x) => x.index === g.index);
+    g.ledger = s?.ledger;
+    g.proclist = s?.procs;
+    g.windows_procs = s?.windows_procs;
+    g.display_active = s?.display_active;
+    g.runs = (h?.runs || []).filter((r) => r.card === g.index && ["running", "stale"].includes(r.state));
+  }
+  return gauges;
+}
+
 let data = null;
 function hover(ev) {
-  const box = ev.target.closest(".chart[data-chart]");
+  const box = ev.target.closest?.(".chart[data-chart]");
   document.querySelectorAll(".chart .tip").forEach((t) => { if (!box || t.parentNode !== box) t.remove(); });
   document.querySelectorAll(".chart .cross").forEach((c) => { if (!box || !box.contains(c)) c.setAttribute("visibility", "hidden"); });
   if (!box || !data) return;
@@ -239,31 +298,44 @@ function hover(ev) {
   cross.setAttribute("x1", 300 * fx); cross.setAttribute("x2", 300 * fx); cross.setAttribute("visibility", "visible");
   let tip = box.querySelector(".tip");
   if (!tip) { tip = document.createElement("div"); tip.className = "tip"; box.append(tip); }
-  const m = pct(p.mem_used, p.mem_total);
+  const m = share(p.mem_used, p.mem_total);
   // Keep the tip inside the tile: anchored at its left edge near the start, its right near the end.
   tip.style.left = `${fx * 100}%`;
   tip.style.transform = `translate(${fx < 0.3 ? 0 : fx > 0.7 ? -100 : -50}%, -100%)`;
-  tip.textContent = `${clock(p.t)} · load ${p.util == null ? "n/a" : Math.round(p.util) + " %"} · memory ${m == null ? "n/a" : Math.round(m) + " %"}` +
+  tip.textContent = `${hm(p.t)} · load ${p.util == null ? "n/a" : Math.round(p.util) + " %"} · memory ${m == null ? "n/a" : Math.round(m) + " %"}` +
     (p.power != null ? ` · ${Math.round(p.power)} W` : "") + (p.temp != null ? ` · ${Math.round(p.temp)} C` : "");
 }
 document.addEventListener("mousemove", hover);
 document.addEventListener("mouseleave", hover);
 
-async function load() {
+async function refresh() {
   try {
-    const r = await fetch("/api/gauges?minutes=60", { cache: "no-store" });
-    if (!r.ok) throw new Error(r.statusText);
-    data = await r.json();
-    const now = data.time;
+    const get = async (url) => {
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    };
+    const [state, gauges] = await Promise.all([get("/api/state"), get("/api/gauges?minutes=60")]);
+    data = join(state, gauges);
+    const now = state.time;
     $("#totals").innerHTML = totals(data.gpus);
+    $("#hosts").innerHTML = state.hosts.map((h) => hostCard(h, now)).join("") ||
+      `<div class="empty">No hosts yet. Add one with: labtender host add &lt;name&gt;</div>`;
     $("#grid").innerHTML = data.gpus.length ? sections(data, now) : `<p class="empty">No GPUs reported yet.</p>`;
-    $("#meta").textContent = `${data.gpus.length} GPU${data.gpus.length === 1 ? "" : "s"} · updated ${clock(now)}`;
+    // A charter waiting for a purser, or one adrift, comes first; otherwise yachts close the page.
+    const urgent = (state.charters || []).some((c) => ["requested", "adrift"].includes(c.state));
+    $("#yachts-first").innerHTML = urgent ? yachtsHtml(state) : "";
+    $("#yachts").innerHTML = urgent ? "" : yachtsHtml(state);
+    // Open log panels follow along, without ever prompting from a background refresh.
+    [...openDetails].filter((k) => k.startsWith("charter-log:")).forEach((k) => loadLog(k.split(":")[1], false));
+    const live = state.hosts.filter((h) => h.online).length;
+    $("#meta").textContent = `${live} of ${state.hosts.length} hosts live · ${data.gpus.length} GPU${data.gpus.length === 1 ? "" : "s"} · updated ${hm(now)}`;
   } catch (e) {
     $("#meta").innerHTML = `<span class="err">not updated: ${esc(e.message)}</span>`;
   }
 }
-load();
-setInterval(load, 15000);
+refresh();
+setInterval(refresh, 15000);
 </script>
 </body>
 </html>

@@ -403,14 +403,29 @@ def create_app(
         except LedgerError as e:
             raise HTTPException(409, str(e)) from None
 
+    def page(name: str) -> str:
+        return resources.files("labtender").joinpath(f"board/{name}").read_text("utf-8")
+
+    # The home page: hosts, then every GPU with its gauges, claims and runs, then the yachts.
     @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
+    async def home() -> str:
+        return page("home.html")
+
+    @app.api_route("/board", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def board() -> str:
-        return resources.files("labtender").joinpath("board/index.html").read_text("utf-8")
+        return page("index.html")
 
     @app.get("/auth.js")
     async def auth_js() -> Response:
-        js = resources.files("labtender").joinpath("board/auth.js").read_text("utf-8")
-        return Response(js, media_type="text/javascript")
+        return Response(page("auth.js"), media_type="text/javascript")
+
+    @app.get("/common.js")
+    async def common_js() -> Response:
+        return Response(page("common.js"), media_type="text/javascript")
+
+    @app.get("/common.css")
+    async def common_css() -> Response:
+        return Response(page("common.css"), media_type="text/css")
 
     @app.api_route("/compact", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def compact() -> str:
@@ -418,7 +433,7 @@ def create_app(
 
     @app.api_route("/gauges", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def gauges_page() -> str:
-        return resources.files("labtender").joinpath("board/gauges.html").read_text("utf-8")
+        return page("home.html")  # the gauges page grew into the home page
 
     @app.api_route("/prices", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def prices_page() -> str:

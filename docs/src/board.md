@@ -1,45 +1,70 @@
 # Reading the board
 
-The board at `/` has one panel per host; `/compact` packs the same information into a narrow
-column. Both refresh every 15 s.
+The board at `/` shows the lab's totals, then a card per host, then a tile per GPU with round
+gauges, grouped by kind, then the yachts. `/board` keeps the classic layout, one panel per host
+with bars instead of gauges, and `/compact` packs the same information into a narrow column. All
+refresh every 15 s; readings are as fresh as each host's probe interval (45 s by default,
+`labtender host set NAME --interval`).
 
 ```{figure} _static/board.png
-:alt: The labtender board for a fictional lab
+:alt: The labtender board for a fictional lab: host cards, then a tile per GPU with round gauges, claims and runs, then the yachts
 :width: 100%
+
+The board for a fictional lab.
 ```
 
-## Host header
+The totals on top count the GPUs reporting, busy (load 50 % or more) and held, the power drawn,
+the memory in use on discrete GPUs, and the hottest card.
+
+## Host cards
 
 A green dot means the host answered within three poll intervals; red means it did not, and the
-last error appears under the header. The line below gives the platform (`wsl`, `jetson`,
-`linux`, `macos`), CPU model, CPU load, RAM, network traffic in and out (Linux hosts, measured
-over the probe's half-second window), free disk in the probing user's home, the probe's own run
-time, and, for ephemeral hosts,
-the time left before expiry. A host with services lists them next, each linked, with *up* or
-*down since* and the reason for those that have a health check (see below).
+last error appears on the card. The line below gives the platform (`wsl`, `jetson`, `linux`,
+`macos`), CPU load, RAM, network traffic in and out (Linux hosts, measured over the probe's
+half-second window), free disk in the probing user's home, and, for ephemeral hosts, the time left
+before expiry; the CPU model shows on hover. The probe's own run time sits next to when the host
+was last seen. A host with services lists them next, each linked, with *up* or *down since* and
+the reason for those that have a health check (see below). A host reached through a VPN carries a
+roaming badge (see below).
 
-## GPUs
+The card also holds what is not about a single GPU: claims on the whole host, processes that use
+the GPUs but are not pinned to one of them, with the reason ("not pinned to one GPU; counts on
+every GPU"), live runs that are not on a GPU, and the host's earlier runs.
 
-Each GPU shows:
+## GPU tiles
+
+Each GPU is a tile named by its card name, with where it is plugged in (`host/gpuN`) on the right:
 
 | Item | Meaning |
 |---|---|
-| load | GPU utilisation from the platform's own source (see [](architecture.md)). |
-| memory | Used over total. On Jetson and Apple silicon the GPU shares system RAM, so memory is labelled *unified memory* and shows the system's figure. |
-| sparkline | GPU load over the last hour. |
-| facts | Temperature, power and limit, clock, *drives a display* if the GPU has a monitor attached, and the data source. |
+| facts | The model, its memory bandwidth, and *drives a display* if the GPU has a monitor attached. |
+| load | GPU utilisation from the platform's own source (see [](architecture.md)), with the core clock underneath. |
+| memory | Used over total. On Jetson and Apple silicon the GPU shares system RAM, so the gauge is labelled *memory* rather than *VRAM* and shows the system's figure. |
+| power | Drawn against the power limit. |
+| temp | The GPU's temperature. |
+| chart | Load and memory over the last hour; hover for the readings at a moment. |
+| ledger box | The holder and estimated return, the queue with expected start times, and any flags (see below). |
+| runs | Live runs on this GPU (see below). |
 | processes | Processes placed on this GPU, with run time and resident memory. |
 | Windows | On a WSL host: the Windows processes on this GPU, with the WSL VM and compute programs by name and desktop applications summed, from the Windows performance counters. |
-| ledger box | The holder and estimated return, the queue with expected start times, and any flags (see below). |
 
-Processes that use the GPUs but are not pinned to one of them are listed under the host, with the
-reason ("not pinned to one GPU; counts on every GPU").
+Memory and power turn amber near their ceiling and red at it, and temperature at 80 C and 90 C,
+with the label saying so. A GPU missing from its host's latest probe shows as away, with its
+claims. A card held back from agents (see [](ledger.md)) says so under its name.
+
+Tiles are grouped by kind: discrete GPUs, integrated GPUs whose memory is shared with the host
+(Jetson and similar), and Apple GPUs. Within a group they are ranked by memory bandwidth rather
+than by memory size: an integrated GPU reports all of the host's memory and would otherwise rank
+above discrete cards several times faster. Bandwidth comes from a table of published figures; for a
+model it does not know (laptop parts among them), give it with `labtender card bandwidth CARD GBS`.
+`/?group=none` lists every GPU in one grid by host instead.
 
 ## Runs
 
-Running runs come first, each with a progress bar, simulated time over target, wall rate, the
-estimated finish as a clock time, the GPU, and how long ago its log last moved. Finished,
-exited, stale and vanished runs fold into *earlier runs*.
+A live run shows on the tile of the GPU it runs on (or on its host's card when it is on none),
+with a progress bar, simulated time over target, wall rate, the estimated finish as a clock time,
+the GPU, and how long ago its log last moved. Finished, exited and vanished runs fold into the
+host's *earlier runs*.
 
 A job that two watches both follow, such as a wrapper's folder and the job's own log folder,
 shows once while one live process holds both: the run whose log moved last, with the other
@@ -139,32 +164,11 @@ host reached inside one of these networks gets a `roaming` badge with the networ
 it as `roaming_via` in the fleet status. Nothing else changes: claims, runs and gauges work as
 before, and a host that drops off the VPN pauses its claims as any unreachable host does.
 
-## Gauges
+## Yachts
 
-```{figure} _static/gauges.png
-:alt: The gauges page: one tile per GPU with round gauges for load, memory, power and temperature
-:width: 100%
-
-The gauges page for the same fictional lab, grouped by kind and ranked by memory bandwidth.
-```
-
-The header links to `/gauges`: every GPU on every host on one page, for a wall screen or a
-second monitor. Each card is a tile named by its card name, with round gauges for load (and core
-clock), memory, power against its limit and temperature, a chart of load and memory over the last
-hour (hover for the readings at a moment), who holds it and how many wait, and how fresh the
-reading is. Memory and power turn amber near their ceiling and red at it, and temperature at 80 C
-and 90 C, with the label saying so. A GPU missing from its host's latest probe shows as away.
-Totals across the lab sit on top: GPUs reporting, busy and held, power drawn, memory in use and the
-hottest card. The page refreshes every 15 s; readings are as fresh as each host's probe interval
-(45 s by default, `labtender host set NAME --interval`).
-
-Tiles are grouped by kind: discrete GPUs, integrated GPUs whose memory is shared with the host
-(Jetson and similar), and Apple GPUs. Within a group they are ranked by memory bandwidth, shown on
-each tile, rather than by memory size: an integrated GPU reports all of the host's memory and would
-otherwise rank above discrete cards several times faster. Bandwidth comes from a table of published
-figures; for a model it does not know (laptop parts among them), give it with
-`labtender card bandwidth CARD GBS`. `/gauges?group=none` lists every GPU in one grid by host
-instead. A card held back from agents (see [](ledger.md)) says so on its tile and on the board.
+Chartered cloud GPUs close the page, with their cost so far, time left and the budget. A charter
+waiting for a purser's approval, or one whose machine could not be destroyed, moves the yachts to
+the top until it is dealt with. See [](yachts.md).
 
 ## The compact view
 
