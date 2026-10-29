@@ -49,7 +49,7 @@ async function ltFetch(url, opts = {}, role = "operator", ask = true) {
 
 // A "forget token" control in the page header, shown while this browser keeps a token.
 function ltShowForget() {
-  const header = document.querySelector("header");
+  const header = document.querySelector("header nav") || document.querySelector("header");
   if (!header) return;
   let b = document.getElementById("lt-forget");
   if (!b) {

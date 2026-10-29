@@ -152,3 +152,9 @@ def test_board_and_shared_assets_are_served(tmp_path):
     assert r.status_code == 307 and r.headers["location"] == "/#hosts"
     assert c.get("/common.js").headers["content-type"].startswith("text/javascript")
     assert "ledger" in c.get("/common.css").text
+    assert (
+        "function dial" in c.get("/gauge.js").text and "labtender-theme" in c.get("/theme.js").text
+    )
+    font = c.get("/fonts/josefin-sans-latin-400-normal.woff2")
+    assert font.status_code == 200 and font.content[:4] == b"wOF2"
+    assert c.get("/fonts/..%2Fserver.py").status_code == 404

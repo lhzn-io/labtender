@@ -7,6 +7,21 @@ Hosts tab says how many hosts need a look: not answering, a failing probe or ser
 run. `/compact` packs the same information into a narrow column. Both refresh every 15 s; readings
 are as fresh as each host's probe interval (45 s by default, `labtender host set NAME --interval`).
 
+The strip along the top says what the page shows and how fresh it is; the sun or moon at its end
+switches between the dark theme (the default) and a light one, remembered in that browser. Colour
+follows a few fixed meanings, and a word always goes with it:
+
+| Colour | Means |
+|---|---|
+| yellow (cobalt in the light theme) | Live and here: a host that answers, section labels, the selected tab, the one main button. |
+| amber | Late or close to a limit: a stale run, a late heartbeat, memory near full, a hot GPU. |
+| brick red | Failed, down or over a limit: a service down, a run that failed, a GPU at its limit. |
+| gold and violet | The two instrument lines: GPU load and memory. |
+| grey | Within limits (power and temperature gauges), or not answering (a hollow dot). |
+
+The fonts (Josefin Sans and Martian Mono, both under the SIL Open Font License) ship with
+labtender, so the board looks the same on a network without internet access.
+
 ```{figure} _static/board.png
 :alt: The labtender board for a fictional lab: host cards, then a tile per GPU with round gauges, claims and runs, then the yachts
 :width: 100%
@@ -19,8 +34,8 @@ the memory in use on discrete GPUs, and the hottest card.
 
 ## Host cards
 
-A green dot means the host answered within three poll intervals; red means it did not, and the
-last error appears on the card. The line below gives the platform (`wsl`, `jetson`, `linux`,
+A lit dot means the host answered within three poll intervals; a hollow ring means it did not,
+and the last error appears on the card. The line below gives the platform (`wsl`, `jetson`, `linux`,
 `macos`), CPU load, RAM, network traffic in and out (Linux hosts, measured over the probe's
 half-second window), free disk in the probing user's home, and, for ephemeral hosts, the time left
 before expiry; the CPU model shows on hover. The probe's own run time sits next to when the host
@@ -49,8 +64,9 @@ Each GPU is a tile named by its card name, with where it is plugged in (`host/gp
 | processes | Processes placed on this GPU, with run time and resident memory. |
 | Windows | On a WSL host: the Windows processes on this GPU, with the WSL VM and compute programs by name and desktop applications summed, from the Windows performance counters. |
 
-Memory and power turn amber near their ceiling and red at it, and temperature at 80 C and 90 C,
-with the label saying so. A GPU missing from its host's latest probe shows as away, with its
+Near its ceiling a gauge's label turns amber and says so (*VRAM, near full*, *power, near
+limit*, *temp, hot* from 80 C); at the ceiling (or from 90 C) the arc turns brick red as well. Within
+limits the power and temperature arcs stay grey, so a healthy tile is quiet. A GPU missing from its host's latest probe shows as away, with its
 claims. A card held back from agents (see [](ledger.md)) says so under its name.
 
 Tiles are grouped by kind: discrete GPUs, integrated GPUs whose memory is shared with the host
@@ -175,13 +191,14 @@ the top until it is dealt with. See [](yachts.md).
 ## The compact view
 
 ```{figure} _static/board-compact.png
-:alt: The compact view, one line per GPU with holders, queues and running jobs
+:alt: The compact view, one line per GPU with three small gauges, the holder and running jobs
 :width: 420px
 
 The compact view of the same fictional lab.
 ```
 
-Each host is a block: a dot, the name, and a warning on the right (unreachable, stale runs, a
-service down, unpinned GPU use). Each GPU is one line with load and memory bars and figures, followed by its
-holder and estimated return, the number waiting, and any flags. Running runs follow with their
+Each host is a block: a dot, the name, and a note on the right (not answering, stale runs, a
+service down, unpinned GPU use, or the network it roams on). Each GPU is one line with three small
+gauges (load, memory in percent, temperature; hover for the figures), followed by its holder and
+estimated return, the number waiting, and any flags. Running runs follow with their
 GPU, name, progress and finish time. The header links to the full board.

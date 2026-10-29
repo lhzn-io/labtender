@@ -167,7 +167,7 @@ function yachtsHtml(s) {
   const rate = r && r.yachts ? `<div class="budget">now ${money(r.rate_usd_h)}/h for ${r.yachts} yacht${r.yachts > 1 ? "s" : ""} · <a href="/prices">prices</a></div>` : "";
   // A prepaid provider stops its machines (and loses their disks) when the balance runs out.
   const bal = (s.providers || []).map((p) => `<div class="budget${p.low ? " wait" : ""}">${esc(p.provider)} balance ${money(p.balance_usd)}${p.committed_usd ? ` · active yachts may still cost ${money(p.committed_usd)}` : ""}${p.low ? " · <b>too low: top it up</b>" : ""}</div>`).join("");
-  return `<section class="host yachts"><h2>Yachts</h2>${rate}${bal}${(s.budgets || []).map(budgetHtml).join("")}${none}${active.map((c) => charterHtml(c, s.time)).join("")}${endedHtml}</section>`;
+  return `<section class="host yachts"><h2 class="label">Yachts</h2>${rate}${bal}${(s.budgets || []).map(budgetHtml).join("")}${none}${active.map((c) => charterHtml(c, s.time)).join("")}${endedHtml}</section>`;
 }
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");

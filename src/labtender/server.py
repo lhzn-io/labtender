@@ -35,6 +35,7 @@ from .proxy import SAFE_METHODS, WRITE_HEADER, WRITE_VALUE, Proxy
 from .proxy import load as load_proxy
 
 RUN_WINDOW_S = 72 * 3600
+FONT_FILE = re.compile(r"^[a-z0-9-]+\.woff2$")
 LINK_FIELD = re.compile(r"\{(service:[A-Za-z0-9_-]+|name|dir|host)\}")
 
 
@@ -426,6 +427,26 @@ def create_app(
     @app.get("/common.css")
     async def common_css() -> Response:
         return Response(page("common.css"), media_type="text/css")
+
+    @app.get("/theme.js")
+    async def theme_js() -> Response:
+        return Response(page("theme.js"), media_type="text/javascript")
+
+    @app.get("/gauge.js")
+    async def gauge_js() -> Response:
+        return Response(page("gauge.js"), media_type="text/javascript")
+
+    @app.get("/fonts/{name}")
+    async def font(name: str) -> Response:
+        if not FONT_FILE.match(name):
+            raise HTTPException(404, "no such font")
+        try:
+            data = resources.files("labtender").joinpath(f"board/fonts/{name}").read_bytes()
+        except FileNotFoundError:
+            raise HTTPException(404, "no such font") from None
+        return Response(
+            data, media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"}
+        )
 
     @app.api_route("/compact", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def compact() -> str:

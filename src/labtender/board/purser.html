@@ -4,42 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>labtender purser</title>
+<link rel="stylesheet" href="/common.css">
 <style>
-  :root {
-    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
-    --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
-      --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --accent: #6ea8ea;
-    }
-  }
-  * { box-sizing: border-box; }
-  /* Thin scrollbars in the board's colours (standard property first, WebKit for Safari). */
-  html { color-scheme: light; --thumb: #c3c9d1; --thumb-hover: #9aa3ae; }
-  @media (prefers-color-scheme: dark) { html { color-scheme: dark; --thumb: #3b434d; --thumb-hover: #56606c; } }
-  * { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); }
-  ::-webkit-scrollbar-corner { background: transparent; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 14px 16px 6px; }
-  header h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
-  header h1 a, header a { color: inherit; }
-  header .meta { color: var(--muted); font-size: 12px; }
-  button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
-           border: 1px solid var(--line); background: var(--track); color: var(--ink); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.danger { color: var(--bad); }
-  button:disabled { opacity: .5; cursor: default; }
   main { display: grid; gap: 12px; padding: 8px 16px 24px;
          grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
   .card.wide { grid-column: 1 / -1; }
-  .card h2 { font-size: 15px; margin: 0 0 8px; }
   .sub { color: var(--muted); font-size: 12px; }
   .charter { border-top: 1px solid var(--line); padding: 10px 0; }
   .charter:first-of-type { border-top: 0; padding-top: 0; }
@@ -49,8 +19,8 @@
   .why { color: var(--warn); font-size: 12px; margin: 4px 0; }
   .stale { color: var(--warn); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px 4px 0;
+  table { width: 100%; border-collapse: collapse; font: 10.5px/1.5 var(--mono); }
+  th { text-align: left; color: var(--muted); font: 700 9px/1.4 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 6px 4px 0;
        border-bottom: 1px solid var(--line); }
   td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
   td.num, th.num { text-align: right; white-space: nowrap; }
@@ -58,18 +28,21 @@
   .scroll { overflow-x: auto; }
   input[type=number] { width: 72px; font: inherit; font-size: 12px; padding: 1px 4px;
                        border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); }
-  .badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
   .low { color: var(--bad); } .fine { color: var(--ok); }
   .cheaper { color: var(--ok); } .dearer { color: var(--bad); }
   .empty { color: var(--muted); font-size: 12px; }
   .err { color: var(--bad); font-size: 12px; }
+  .card h2 { margin: 0 0 10px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 </style>
+<script src="/theme.js"></script>
 </head>
 <body>
-<header>
-  <h1><a href="/">labtender</a> · purser</h1>
-  <span class="meta" id="meta">loading</span>
+<div class="strip"><span class="meta" id="meta">loading</span><button class="theme-icon" data-theme-toggle></button></div>
+<header class="mast">
+  <a class="wordmark" href="/">labtender<span class="page">purser</span></a>
+  <nav>
   <a class="meta" href="/prices">prices</a>
+  <a href="/">board</a></nav>
 </header>
 <main id="cards"></main>
 <script src="/auth.js"></script>

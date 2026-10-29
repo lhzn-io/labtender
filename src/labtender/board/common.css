@@ -1,62 +1,195 @@
-/* The board's colours, and its ledger, run, service and charter blocks, kept apart from the
-   page so other pages can share them. */
+/* labtender's look, shared by every page: the Long Horizon "chart room" palette (Josefin Sans, the
+   slate horizon, maritime yellow). Dark is the default; light ("gilded china": eggshell, navy,
+   cobalt) is chosen with the theme switch (theme.js) and set as data-theme="light" on <html>.
+
+   Yellow means live and here: a host that answers has a lit dot, headings and the selected tab are
+   in the accent. Amber is late, stale or near a limit; brick red is failed, down or over a limit;
+   there is no green, and no state is shown by colour alone. Load and memory are the instrument
+   series: gold and violet, a pair that stays apart for colour-blind readers in both themes.
+   The fonts are bundled (SIL Open Font License, see fonts/), never fetched from a font CDN. */
+@font-face { font-family: "Josefin Sans"; font-weight: 300; font-display: swap; src: url("/fonts/josefin-sans-latin-300-normal.woff2") format("woff2"); }
+@font-face { font-family: "Josefin Sans"; font-weight: 400; font-display: swap; src: url("/fonts/josefin-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Josefin Sans"; font-weight: 600; font-display: swap; src: url("/fonts/josefin-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Josefin Sans"; font-weight: 700; font-display: swap; src: url("/fonts/josefin-sans-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-weight: 400; font-display: swap; src: url("/fonts/martian-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-weight: 500; font-display: swap; src: url("/fonts/martian-mono-latin-500-normal.woff2") format("woff2"); }
+
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --line: #dde1e6;
-  --track: #e8ebef; --ok: #2f7d4f; --warn: #b26a00; --bad: #b3261e; --accent: #1f5fa8;
-  --util: #1f5fa8; --mem: #6b4fa0;
+  --bg: #111111;
+  --panel: #1a1f24;
+  --raised: #222a31;                 /* claim boxes, inputs */
+  --ink: #ffffff;
+  --ink-soft: rgba(255, 255, 255, 0.85);
+  --muted: #9aa8b3;                  /* secondary text */
+  --faint: #6f7c86;                  /* offline, not applicable */
+  --line: rgba(255, 255, 255, 0.18);
+  --track: rgba(255, 255, 255, 0.1); /* gauge and bar tracks */
+  --accent: #decf03;                 /* headings, labels, selected controls */
+  --accent-hi: #fde047;
+  --accent-line: rgba(222, 207, 3, 0.55);
+  --live: #decf03;                   /* a lit dot: the host answers */
+  --live-glow: rgba(222, 207, 3, 0.6);
+  --ok: var(--accent);               /* "up", "running": fine reads as live */
+  --warn: #f0b135;                   /* delayed: late, stale, hot */
+  --bad: #d24a37;                    /* advisory: failed, down, very hot */
+  --util: #ad8d00;                   /* load, the measured line */
+  --mem: #8a6fd0;                    /* memory, the second line */
+  --neutral: #a9afb8;                /* power and temperature while within limits */
+  --button-ink: #111111;
+  --strip-bg: linear-gradient(90deg, #2b4457 0%, #1c2b36 45%, #111111 100%);
+  --strip-ink: rgba(255, 255, 255, 0.72);
+  --tip-bg: rgba(17, 17, 17, 0.94);
+  --thumb: rgba(154, 168, 179, 0.3);
+  --sans: "Josefin Sans", "Futura", "Century Gothic", sans-serif;
+  --mono: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: dark;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111418; --panel: #191d22; --ink: #e6e9ed; --muted: #98a2ae; --line: #2a3038;
-    --track: #262c33; --ok: #5bbd85; --warn: #e0a346; --bad: #ef6b62; --accent: #6ea8ea;
-    --util: #6ea8ea; --mem: #a88be0;
-  }
+:root[data-theme="light"] {
+  --bg: #faf7f0;                     /* eggshell */
+  --panel: #f2ece0;
+  --raised: #e9e1d1;
+  --ink: #1c2a48;                    /* navy, 13.3:1 */
+  --ink-soft: #24345a;
+  --muted: #56657f;                  /* 5.5:1 */
+  --faint: #7b8496;
+  --line: rgba(28, 42, 72, 0.16);
+  --track: rgba(28, 42, 72, 0.1);
+  --accent: #15338a;                 /* cobalt, 10.5:1 */
+  --accent-hi: #0c2366;
+  --accent-line: rgba(21, 51, 138, 0.45);
+  --live: #b89300;                   /* gilded gold, with its glow */
+  --live-glow: rgba(184, 147, 0, 0.35);
+  --warn: #a35a00;
+  --bad: #9e2418;
+  --util: #a37b00;
+  --mem: #8167bd;
+  --neutral: #5c5f66;
+  --button-ink: #fdfbf6;
+  --strip-bg: linear-gradient(90deg, #dce4f0 0%, #efe9dc 50%, #faf7f0 100%);
+  --strip-ink: #2b3a5a;
+  --tip-bg: rgba(253, 251, 246, 0.97);
+  --thumb: rgba(28, 42, 72, 0.25);
+  color-scheme: light;
 }
-.err { color: var(--bad); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
-.row { display: grid; grid-template-columns: 52px 1fr 92px; align-items: center; gap: 8px;
-       font-size: 12px; margin-top: 4px; }
-.row .lab { color: var(--muted); }
-.row .val { text-align: right; font-variant-numeric: tabular-nums; }
-.bar { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
-.bar > i { display: block; height: 100%; border-radius: 4px; }
-.facts { color: var(--muted); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.procs { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; }
-.procs li { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.procs b { color: var(--ink); font-weight: 600; }
-.runs { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
-.run { margin-top: 6px; font-size: 12px; }
-.run .top { display: flex; justify-content: space-between; gap: 8px; }
-.run .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
-.badge.roam { color: var(--muted); font-weight: 400; vertical-align: middle; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); -webkit-text-size-adjust: 100%; }
+a { color: inherit; }
+* { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--thumb); border-radius: 999px; }
+::-webkit-scrollbar-corner { background: transparent; }
+:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.mono { font-family: var(--mono); }
+
+/* Freshness strip: what the page shows and how fresh it is, with the theme switch at its end. */
+.strip { display: flex; align-items: center; min-height: 24px; padding-left: 16px; background: var(--strip-bg);
+         border-bottom: 1px solid var(--accent-line); font: 9.5px/1.5 var(--mono); letter-spacing: 0.02em; color: var(--strip-ink); }
+.strip .meta { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .err { color: var(--bad); }
+.theme-icon { flex: none; display: grid; place-items: center; width: 30px; height: 24px; margin-right: 8px; padding: 0;
+              cursor: pointer; color: var(--accent); background: none; border: 0; border-radius: 50%; }
+.theme-icon:hover { color: var(--accent-hi); background: var(--line); }
+
+/* Masthead: the wordmark, the page's name, and links in the label style. */
+.mast { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; padding: 14px 16px 12px; }
+.wordmark { color: var(--accent); text-decoration: none; font-weight: 300; font-size: 21px; line-height: 1;
+            letter-spacing: 0.32em; text-transform: uppercase; white-space: nowrap; }
+.wordmark .page { margin-left: 0.4em; font-size: 11px; letter-spacing: 0.24em; color: var(--muted); }
+.mast nav { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-left: auto; align-items: center; }
+.mast nav a, .mast nav button { font: 700 9.5px/1 var(--sans); letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--muted); text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; }
+.mast nav a:hover, .mast nav button:hover { color: var(--accent-hi); }
+@media (max-width: 520px) { .wordmark { letter-spacing: 0.16em; font-size: 18px; } .mast nav { margin-left: 0; } }
+
+/* Section labels and tabs */
+.label { font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+.tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.tabs a { padding: 7px 14px 8px; margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0; text-decoration: none;
+          font: 700 10px/1 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.tabs a small { margin-left: 6px; font: 400 9px/1 var(--mono); letter-spacing: 0; color: var(--faint); }
+.tabs a:hover { color: var(--ink); }
+.tabs a[aria-selected="true"] { color: var(--accent); border-color: var(--line); background: var(--bg); }
+.tabs .attn { margin-left: 6px; font: 400 9px/1 var(--mono); letter-spacing: 0; color: var(--warn); }
+
+/* Buttons: pills in the label style; one primary (accent) per view. */
+button { font: 700 9.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; padding: 7px 14px 8px;
+         border-radius: 999px; cursor: pointer; border: 1px solid var(--line); background: none; color: var(--ink); }
+button:hover { border-color: var(--accent-line); color: var(--accent-hi); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--button-ink); }
+button.primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); color: var(--button-ink); }
+button.danger { color: var(--bad); }
+button:disabled { opacity: 0.5; cursor: default; }
+input { font: 11px/1.3 var(--mono); padding: 2px 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--raised); color: var(--ink); }
+
+/* A lit dot while the host answers; a hollow ring when it is silent. */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; align-self: center;
+       background: none; border: 1.5px solid var(--faint); }
+.dot.on { background: var(--live); border-color: var(--live); box-shadow: 0 0 5px var(--live-glow); }
+
+/* Badges: outlined pills, the state as the word. */
+.badge { font: 400 9.5px/1.5 var(--mono); padding: 0 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.badge.roam { color: var(--muted); vertical-align: middle; }
 .s-running { color: var(--ok); } .s-stale { color: var(--warn); }
 .s-exited { color: var(--bad); } .s-done, .s-gone { color: var(--muted); }
-.run .bar > i { background: var(--accent); }
+.s-live, .s-approved, .s-launching { color: var(--ok); } .s-requested, .s-landing { color: var(--warn); }
+.s-adrift, .s-failed { color: var(--bad); } .s-destroyed, .s-rejected, .s-withdrawn { color: var(--muted); }
+
+/* Tooltips: square, with the accent bar on the left. */
+.tip { position: absolute; z-index: 2; pointer-events: none; padding: 4px 8px; white-space: nowrap;
+       background: var(--tip-bg); border-left: 2px solid var(--accent); font: 10px/1.4 var(--mono); color: var(--ink); }
+
+/* Gauges (gauge.js) */
+.dial { text-align: center; min-width: 0; }
+.dial svg { width: 100%; max-width: 104px; display: block; margin: 0 auto -6px; }
+.dial .v { font: 500 19px var(--mono); fill: var(--ink); }
+.dial .u { font: 400 9px var(--mono); fill: var(--muted); }
+.dial .lbl { font: 700 9px/1.4 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dial .lbl.warn, .dial .of.warn { color: var(--warn); } .dial .lbl.bad, .dial .of.bad { color: var(--bad); }
+.dial .of { font: 9.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini { display: inline-block; width: 34px; height: 34px; vertical-align: middle; }
+.mini svg { width: 100%; height: 100%; display: block; }
+.mini .v { font: 500 31px var(--mono); fill: var(--ink); }
+
+/* The board's blocks: a GPU's claims, a run, a host's services, the yachts. */
+.err { color: var(--bad); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
 .empty { color: var(--muted); font-size: 12px; margin-top: 8px; }
-.run .name a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); }
+.row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 8px; font-size: 11px; margin-top: 4px; }
+.row .lab { color: var(--muted); font-family: var(--mono); }
+.row .val { text-align: right; font-family: var(--mono); }
+.bar { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 3px; }
+.facts { color: var(--muted); font: 10.5px/1.5 var(--mono); margin-top: 4px; }
+.procs { margin: 6px 0 0; padding: 0; list-style: none; font: 10.5px/1.5 var(--mono); }
+.procs li { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.procs b { color: var(--ink); font-weight: 500; }
+.runs { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+.run { margin-top: 8px; font-size: 12px; }
+.run .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.run .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .bar > i { background: var(--util); }
+.run .name a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; }
 .run .name a:hover { text-decoration-color: var(--accent); }
-.ledger { font-size: 12px; margin-top: 6px; padding: 5px 7px; border-radius: 6px;
-          background: var(--track); }
+.ledger { font-size: 12px; margin-top: 8px; padding: 6px 8px; background: var(--raised); border-left: 2px solid var(--line); }
 .ledger .who { font-weight: 600; }
 .ledger .wait { color: var(--muted); }
 .ledger .flag { color: var(--warn); }
 .ledger .late { color: var(--bad); }
 details { margin-top: 8px; }
 summary { cursor: pointer; }
-.charter .detail { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 11px;
-                   max-height: 220px; overflow: auto; margin: 4px 0 0; }
-.yachts details > summary { margin-top: 8px; }
-.charter .step { color: var(--accent); font-variant-numeric: tabular-nums; margin-top: 2px; }
-.charter pre.detail { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-.yachts h2 { font-size: 15px; margin: 0 0 4px; }
-.charter { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; font-size: 12px; }
-.charter .top { display: flex; justify-content: space-between; gap: 8px; }
-.s-live, .s-approved, .s-launching { color: var(--ok); } .s-requested, .s-landing { color: var(--warn); }
-.s-adrift, .s-failed { color: var(--bad); } .s-destroyed, .s-rejected, .s-withdrawn { color: var(--muted); }
-.adrift { color: var(--bad); font-weight: 600; }
-.charter button { font: inherit; font-size: 12px; margin: 4px 6px 0 0; padding: 2px 10px; border-radius: 6px;
-                  border: 1px solid var(--line); background: var(--track); color: var(--ink); cursor: pointer; }
 .svcs { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .svcs .up { color: var(--ok); } .svcs .down { color: var(--bad); font-weight: 600; }
-.svcs a { color: inherit; }
-.budget { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.svcs a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 2px; }
+.yachts h2 { margin: 0 0 6px; }
+.yachts details > summary { margin-top: 8px; }
+.charter { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; font-size: 12px; }
+.charter .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.charter .detail { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: 10px/1.5 var(--mono);
+                   max-height: 220px; overflow: auto; margin: 4px 0 0; }
+.charter .step { color: var(--accent); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; }
+.charter button { margin: 6px 6px 0 0; }
+.adrift { color: var(--bad); font-weight: 600; }
+.budget { font: 10.5px/1.5 var(--mono); color: var(--muted); margin-top: 2px; }
