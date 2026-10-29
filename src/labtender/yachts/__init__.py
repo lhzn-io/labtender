@@ -109,9 +109,10 @@ class Plugin:
         timeout_s: float = 900,
         log: Path | None = None,
         progress: Callable | None = None,
+        values: dict | None = None,
     ) -> None:
         """Bring the results back: run the profile's land (or sync) commands."""
-        run_commands(yacht, commands, timeout_s, log=log, progress=progress)
+        run_commands(yacht, commands, timeout_s, log=log, progress=progress, values=values)
 
     def read_file(self, yacht: Yacht, path: str, timeout_s: float = 30) -> str | None:
         """A small file's contents on the machine, or None when it does not exist (yet).
@@ -177,6 +178,7 @@ def run_commands(
     timeout_s: float,
     log: Path | None = None,
     progress: Callable | None = None,
+    values: dict | None = None,
 ) -> None:
     """Run profile commands on the labtender service's machine.
 
@@ -184,12 +186,17 @@ def run_commands(
     can copy work out (``rsync -a work/ {ssh}:work/``) or run something there
     (``ssh {ssh} 'cd work && ./setup.sh'``).
 
+    ``values`` adds placeholders of its own, each also set as ``LABTENDER_<NAME>`` in the
+    commands' environment: landing passes ``charter``, ``cost_usd`` (so far) and ``rate_usd_h``,
+    so a land step can record what the run cost next to its results.
+
     Each step's output (stdout and stderr together) is appended to ``log`` as it is written, so
     an operator can follow a long set-up; ``progress(step, steps, label)`` is called before each
     step. A failed step raises with an excerpt of its own output.
     """
     deadline = time.monotonic() + timeout_s
     path = Path(log) if log else None
+    env = {**os.environ, **{f"LABTENDER_{k.upper()}": str(v) for k, v in (values or {}).items()}}
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)
     for i, step in enumerate(commands, 1):
@@ -197,6 +204,8 @@ def run_commands(
         line = cmd.replace("{ssh}", shlex.quote(yacht.ssh or "")).replace(
             "{ref}", shlex.quote(yacht.ref)
         )
+        for k, v in (values or {}).items():
+            line = line.replace("{" + k + "}", shlex.quote(str(v)))
         left = deadline - time.monotonic()
         if left <= 0:
             raise PluginError(f"out of time before: {cmd}")
@@ -213,7 +222,7 @@ def run_commands(
             start = out.tell()
             try:
                 r = subprocess.run(
-                    line, shell=True, stdout=out, stderr=subprocess.STDOUT, timeout=left
+                    line, shell=True, stdout=out, stderr=subprocess.STDOUT, timeout=left, env=env
                 )
             except subprocess.TimeoutExpired:
                 raise PluginError(f"timed out: {cmd}") from None

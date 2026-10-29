@@ -716,3 +716,16 @@ def test_profiles_and_databases_from_before_the_rename_still_work(tmp_path):
     profile(tmp_path, "older", extra=f'{old} = ["true"]\n{old}_timeout_min = 5\n')
     p = ch.profile("older")
     assert p["land"] == ["true"] and p["land_timeout_min"] == 5 and old not in p
+
+
+def test_land_commands_get_the_charter_and_its_cost(tmp_path):
+    from labtender.yachts import Yacht, run_commands
+
+    out = tmp_path / "landed.txt"
+    run_commands(
+        Yacht("r", None, "local"),
+        [f'echo {{charter}} {{cost_usd}} {{rate_usd_h}} $LABTENDER_CHARTER > "{out.as_posix()}"'],
+        30,
+        values={"charter": 7, "cost_usd": "1.25", "rate_usd_h": "2.49"},
+    )
+    assert out.read_text().split() == ["7", "1.25", "2.49", "7"]

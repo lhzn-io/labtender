@@ -1049,6 +1049,11 @@ class Charters:
                     float(spec["land_timeout_min"]) * 60,
                     log=self.log_path(cid),
                     progress=self._tracker(cid, "landing"),
+                    values={
+                        "charter": cid,
+                        "cost_usd": f"{self.cost(c):.2f}",
+                        "rate_usd_h": f"{c['rate_usd_h']:.4g}",
+                    },
                 )
                 self.store.audit("labtender", "charter.landed", f"charter/{cid}")
             except Exception as e:  # noqa: BLE001

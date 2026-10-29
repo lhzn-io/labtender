@@ -107,6 +107,9 @@ bootstrap = [
   "ssh {ssh} 'cd eval && pip install -q -r requirements.txt'",
 ]
 land = ["rsync -a {ssh}:eval/results/ ~/work/eval/results/"]
+# {charter}, {cost_usd} (so far) and {rate_usd_h} are filled in for land commands too, and set as
+# LABTENDER_CHARTER, LABTENDER_COST_USD and LABTENDER_RATE_USD_H, so a step can note the cost
+# beside the results; the final cost is in GET /api/charters/{id} once the yacht is destroyed.
 land_timeout_min = 15
 bootstrap_timeout_min = 30   # set-up runs before the yacht is live, so the reaper never sees it
 sync = ["rsync -a {ssh}:eval/results/ ~/work/eval/results/"]  # copies taken while it runs
