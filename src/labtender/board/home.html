@@ -133,8 +133,8 @@ function tile(g, i, now) {
   </div>`;
 }
 
-// One card per host: what is not about a single GPU (the machine, its services, probe errors,
-// host-wide claims, runs not on a GPU, and earlier runs).
+// One card per host: the machine, its services, probe errors, host-wide claims, its live runs
+// (those on a GPU too, since the GPU tiles are on the other tab) and earlier runs.
 function hostCard(h, now) {
   const info = h.host || {};
   const memUsed = info.mem_total_kb ? ((info.mem_total_kb - (info.mem_avail_kb ?? 0)) / 1048576).toFixed(0) : null;
@@ -149,12 +149,10 @@ function hostCard(h, now) {
   const files = (h.file_checks || []).map((f) => `<div class="hsub${f.late ? " late" : ""}" title="${esc(f.path)}, late after ${f.max_h} h">${esc(f.name)} ${
     f.age_s == null ? (f.seen ? "missing" : "not read yet") : `${dur(f.age_s)} ago`}${f.late && f.seen ? " · late" : ""}</div>`).join("");
   const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
-  const onCard = new Set((h.gpus || []).map((g) => g.index));
   const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
   const all = [...(h.runs || [])].sort((a, b) =>
     (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.last_log_at ?? 0) - (a.last_log_at ?? 0));
-  // Live runs on a GPU show on its tile; the rest are listed here.
-  const live = all.filter((r) => shownLive(r, now) && !onCard.has(r.card));
+  const live = all.filter((r) => shownLive(r, now));
   const ended = all.filter((r) => !shownLive(r, now));
   const key = `ended:${h.name}`;
   const earlier = ended.length
