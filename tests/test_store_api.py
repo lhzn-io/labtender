@@ -123,3 +123,19 @@ def test_gauges_list_every_gpu_with_its_history(tmp_path):
     away = [g for g in r["gpus"] if g["host"] == "laptop" and g["away"]]
     assert [g["index"] for g in away] == [1]
     assert TestClient(app).get("/gauges").status_code == 200
+
+
+def test_a_host_reached_through_a_roaming_network_says_so(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from labtender.db import Store
+    from labtender.server import create_app
+
+    (tmp_path / "networks.toml").write_text('[roaming]\nvpn = ["10.8.0.0/24"]\n')
+    store = Store(tmp_path / "t.sqlite")
+    app = create_app(store=store, home=tmp_path, collect=False)
+    for name, addr in (("laptop", "10.8.0.2"), ("tower", "192.0.2.10"), ("box", None)):
+        store.add_host(name, actor="t")
+        store.record_probe(name, {"host": {"reached_at": addr}, "gpus": [], "gpu_procs": []}, [])
+    hosts = {h["name"]: h["roaming"] for h in TestClient(app).get("/api/state").json()["hosts"]}
+    assert hosts == {"laptop": "vpn", "tower": None, "box": None}

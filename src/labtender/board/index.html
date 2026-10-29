@@ -57,6 +57,7 @@
   .run .top { display: flex; justify-content: space-between; gap: 8px; }
   .run .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .badge { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap; }
+  .badge.roam { color: var(--muted); font-weight: 400; vertical-align: middle; }
   .s-running { color: var(--ok); } .s-stale { color: var(--warn); }
   .s-exited { color: var(--bad); } .s-done, .s-gone { color: var(--muted); }
   .run .bar > i { background: var(--accent); }
@@ -260,7 +261,7 @@ function hostHtml(h, now) {
     ? `<details data-key="${esc(key)}"${openDetails.has(key) ? " open" : ""}><summary class="sub">${ended.length} earlier run${ended.length > 1 ? "s" : ""}</summary>${ended.map((r) => runHtml(r, now)).join("")}</details>`
     : "");
   return `<section class="host">
-    <h2><span class="dot ${h.online ? "on" : ""}"></span>${esc(h.name)} <span class="sub">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, probe ${h.probe_ms} ms` : ""}</span></h2>
+    <h2><span class="dot ${h.online ? "on" : ""}"></span>${esc(h.name)}${h.roaming ? ` <span class="badge roam" title="Reached at ${esc(h.host?.reached_at)}, through ${esc(h.roaming)}">roaming · ${esc(h.roaming)}</span>` : ""} <span class="sub">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, probe ${h.probe_ms} ms` : ""}</span></h2>
     <div class="sub">${esc(sub)}</div>
     ${servicesHtml(h, now)}
     ${h.last_error ? `<div class="err">${esc(h.last_error)}</div>` : ""}

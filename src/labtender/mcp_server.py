@@ -121,6 +121,7 @@ def fleet_summary(state: dict) -> dict:
             {
                 "host": h["name"],
                 "online": h["online"],
+                "roaming_via": h.get("roaming"),
                 "platform": info.get("platform"),
                 "accepts_tiers": h.get("accepts") or "all",
                 "services": h.get("services_active") or h.get("services") or {},

@@ -24,7 +24,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from . import gpukinds
+from . import gpukinds, networks
 from .charter import CharterError, Charters, is_purser, public
 from .collector import Collector
 from .db import Store, default_home
@@ -267,7 +267,9 @@ def card_fields(card: dict | None, model: str | None, unified: bool | None) -> d
     }
 
 
-def host_view(store: Store, ledger: Ledger, h: dict, now: float) -> dict:
+def host_view(
+    store: Store, ledger: Ledger, h: dict, now: float, roaming: dict | None = None
+) -> dict:
     snap = store.snapshot(h["name"])
     online = bool(h["last_seen"]) and now - h["last_seen"] < 3 * max(30, h["interval_s"])
     gpus, host_info, probe_ms, unplaced, errors = [], None, None, [], []
@@ -297,6 +299,7 @@ def host_view(store: Store, ledger: Ledger, h: dict, now: float) -> dict:
         **{k: h.get(k) for k in HOST_FIELDS},
         "online": online,
         "host": host_info,
+        "roaming": networks.roaming_via((host_info or {}).get("reached_at"), roaming or {}),
         "gpus": gpus,
         "host_ledger": ledger.resource_view(h["name"]) if host_claims else None,
         "unplaced_procs": unplaced,
@@ -325,6 +328,7 @@ def create_app(
     prices = prices or Prices(store, charters, home)
     # True reads $LABTENDER_HOME/proxy.toml (none there: no proxy); False turns it off.
     proxy = load_proxy(home, store) if proxy is True else (proxy or None)
+    roaming = networks.load(home)
     collector = Collector(store, home, ledger)
 
     @asynccontextmanager
@@ -440,7 +444,7 @@ def create_app(
         now = time.time()
         return {
             "time": now,
-            "hosts": [host_view(store, ledger, h, now) for h in store.hosts()],
+            "hosts": [host_view(store, ledger, h, now, roaming) for h in store.hosts()],
             **charters.view(now),
             "run_rate": prices.run_rate(now),
         }

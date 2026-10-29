@@ -657,6 +657,9 @@ def main(argv=None):
     plat = detect_platform()
     errors = []
     host = host_macos() if plat == "macos" else host_linux(plat)
+    # Where the hub reached this host: the server side of the SSH connection, if any.
+    ssh = (os.environ.get("SSH_CONNECTION") or "").split()
+    host["reached_at"] = ssh[2] if len(ssh) == 4 else None
     procs, unreadable = [], 0
     if plat == "macos":
         # all-smi reads power and temperature without sudo; ioreg is the fallback.

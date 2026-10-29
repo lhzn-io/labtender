@@ -124,6 +124,21 @@ probe and whenever a claim changes, and every change is written to the audit tra
 The board's header links to `/prices`: current GPU prices per provider, their trend, and the run
 rate of live yachts. See [](yachts.md).
 
+## Roaming hosts
+
+A laptop that leaves the lab and dials back in over a VPN keeps its place on the board. To see at
+a glance which hosts are reached that way, name the networks in `$LABTENDER_HOME/networks.toml`:
+
+```toml
+[roaming]
+vpn = ["10.8.0.0/24"]
+```
+
+The probe reports the address the hub reached it at (the server side of its SSH connection), and a
+host reached inside one of these networks gets a `roaming` badge with the network's name. Agents see
+it as `roaming_via` in the fleet status. Nothing else changes: claims, runs and gauges work as
+before, and a host that drops off the VPN pauses its claims as any unreachable host does.
+
 ## Gauges
 
 ```{figure} _static/gauges.png
