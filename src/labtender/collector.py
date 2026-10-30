@@ -364,8 +364,15 @@ class Collector:
                         previous=before[svc]["base"],
                     )
         if self.ledger:
+            # An optional service is down at times by design (a demo hub on a laptop): no flag.
+            optional = set(host["optional"])
             self.ledger.service_flag(
-                name, {svc: detail for svc, (ok, detail) in results.items() if not ok}
+                name,
+                {
+                    svc: detail
+                    for svc, (ok, detail) in results.items()
+                    if not ok and svc not in optional
+                },
             )
         return results
 

@@ -97,9 +97,14 @@ function servicesHtml(h, now) {
     const name = `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(n)}</a>`;
     if (!c) return name;
     const via = c.ok && c.base && c.base !== h.services[n] ? ` via ${esc(new URL(c.base).host)}` : "";
+    // An optional service is down at times by design, and a service on a host that is not
+    // answering is down with it (the host is the alert): off, in muted ink, not a fault.
+    const off = (h.optional || []).includes(n) ? "optional" : !h.online ? "the host is not answering" : null;
     return c.ok
       ? `${name} <span class="up" title="${esc(c.detail)}, checked ${ago(c.checked_at, now)}">up${via}</span>`
-      : `${name} <span class="down" title="${esc(c.url)}">down since ${clock(c.changed_at)}: ${esc(c.detail)}</span>`;
+      : off
+        ? `${name} <span class="off" title="${off}; ${esc(c.detail)}">off</span>`
+        : `${name} <span class="down" title="${esc(c.url)}">down since ${clock(c.changed_at)}: ${esc(c.detail)}</span>`;
   });
   return `<div class="svcs">services: ${parts.join(" · ")}</div>`;
 }

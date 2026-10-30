@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS host (
     health      TEXT NOT NULL DEFAULT '{}',      -- {service name: path to GET}, optional
     fallbacks   TEXT NOT NULL DEFAULT '{}',      -- {service name: [address, ...]}, tried in order
     files       TEXT NOT NULL DEFAULT '{}',      -- {name: {path, max_h}}: files whose age to show
+    optional    TEXT NOT NULL DEFAULT '[]',      -- services that are down by design at times
     run_link    TEXT,                            -- template for links from each run
     added_at    REAL NOT NULL,
     last_seen   REAL,
@@ -116,6 +117,7 @@ MIGRATIONS = (
     ("host", "fallbacks", "TEXT NOT NULL DEFAULT '{}'"),
     ("service_health", "base", "TEXT"),
     ("host", "files", "TEXT NOT NULL DEFAULT '{}'"),
+    ("host", "optional", "TEXT NOT NULL DEFAULT '[]'"),
     ("gpu_sample", "uuid", "TEXT"),
     ("card", "hold", "TEXT"),  # why it is held back from agents; NULL when offered
     ("card", "bandwidth_gbs", "REAL"),  # set by a person, for a model the table lacks
@@ -314,14 +316,16 @@ class Store:
         health: dict | None = None,
         fallbacks: dict | None = None,
         files: dict | None = None,
+        optional: dict | None = None,
     ) -> dict:
         """Change a host's interval, accepted tiers, transport, ssh target, services, health
-        paths, fallback addresses, run link or labels.
+        paths, fallback addresses, optional services, run link or labels.
 
         ``services`` and ``health`` merge into the host's maps; a name with an empty value is
         removed, and removing a service removes its health path and fallbacks. ``fallbacks``
-        replaces each named service's list; an empty list removes it. An empty ``run_link``
-        clears it.
+        replaces each named service's list; an empty list removes it. ``optional`` maps service
+        names to true (down at times by design: shown as off, no flag) or false. An empty
+        ``run_link`` clears it.
         """
         if interval_s is not None and not 30 <= interval_s <= 3600:
             raise ValueError("interval_s must be between 30 and 3600 s")
@@ -376,6 +380,22 @@ class Store:
             merged_fallbacks = {k: v for k, v in merged_fallbacks.items() if k in services_now}
             if merged_fallbacks != current["fallbacks"]:
                 changes["fallbacks"] = json.dumps(merged_fallbacks)
+        merged_optional = None
+        if optional is not None or merged is not None:
+            current = self.host(name)
+            if current is None:
+                raise ValueError(f"no host {name}")
+            services_now = merged if merged is not None else current["services"]
+            missing = [k for k, v in (optional or {}).items() if v and k not in services_now]
+            if missing:
+                raise ValueError(
+                    f"no service {missing[0]} on the host; add it with --service first"
+                )
+            keep = set(current["optional"]) | {k for k, v in (optional or {}).items() if v}
+            keep -= {k for k, v in (optional or {}).items() if not v}
+            merged_optional = sorted(k for k in keep if k in services_now)
+            if merged_optional != current["optional"]:
+                changes["optional"] = json.dumps(merged_optional)
         if run_link is not None:
             changes["run_link"] = run_link or None
         merged_files = None
@@ -424,6 +444,8 @@ class Store:
                     if k == "labels"
                     else merged_files
                     if k == "files"
+                    else merged_optional
+                    if k == "optional"
                     else v
                     for k, v in changes.items()
                 },
@@ -864,4 +886,5 @@ def _host(r: sqlite3.Row) -> dict:
     d["health"] = json.loads(d.get("health") or "{}")
     d["fallbacks"] = json.loads(d.get("fallbacks") or "{}")
     d["files"] = json.loads(d.get("files") or "{}")
+    d["optional"] = json.loads(d.get("optional") or "[]")
     return d

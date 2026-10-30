@@ -73,7 +73,7 @@ function hostHtml(h, now) {
     const stale = (h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < 6 * 3600);
     if (stale.length) { note = stale.length > 1 ? `${stale.length} stale runs` : "stale run"; cls = "warn"; tip = stale.map((r) => r.name).join(", "); }
   }
-  const down = Object.entries(h.service_health || {}).filter(([, c]) => !c.ok);
+  const down = Object.entries(h.service_health || {}).filter(([n, c]) => !c.ok && !(h.optional || []).includes(n));
   if (!note && down.length) {
     note = down.length > 1 ? `${down.length} services down` : `${down[0][0]} down`;
     cls = "bad"; tip = down.map(([n, c]) => `${n}: ${c.detail}`).join("; ");

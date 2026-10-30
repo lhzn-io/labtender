@@ -118,6 +118,7 @@ class HostPatch(BaseModel):
     services: dict[str, str] | None = None
     health: dict[str, str] | None = None
     fallbacks: dict[str, list[str]] | None = None
+    optional: dict[str, bool] | None = None
     run_link: str | None = None
 
 
@@ -185,6 +186,7 @@ HOST_FIELDS = (
     "health",
     "fallbacks",
     "files",
+    "optional",
     "run_link",
     "last_seen",
     "last_error",
@@ -570,6 +572,7 @@ def create_app(
                 run_link=body.run_link,
                 health=body.health,
                 fallbacks=body.fallbacks,
+                optional=body.optional,
             )
         except ValueError as e:
             raise HTTPException(422, str(e)) from None

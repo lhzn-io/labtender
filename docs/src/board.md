@@ -149,6 +149,18 @@ board use the active address, so they keep working while the host is away; the b
 own and the reason says how many fallbacks were tried. A move from one address to another while
 the service stays up is audited as `service.moved`.
 
+A service that is down at times by design, such as a demo server on a laptop that runs only
+while someone is showing it, can be marked optional:
+
+```bash
+labtender host set ws-laptop --optional dashboard      # --required dashboard undoes it
+```
+
+An optional service is still checked: when it answers the board shows it *up* with its link as
+usual; when it does not, the board shows it *off* in muted ink, and it raises no service-down
+flag and does not count towards a host needing a look. Any service on a host that is not
+answering also shows *off*: the host itself is the alert.
+
 Fallbacks only take effect through health checks: a service without a health path always uses
 its own address. Results appear on the board, in `GET /api/hosts`, in the MCP
 `fleet_status` tool and as `labtender_service_up` in `/metrics`, and each change between up and

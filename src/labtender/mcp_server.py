@@ -126,7 +126,11 @@ def fleet_summary(state: dict) -> dict:
                 "accepts_tiers": h.get("accepts") or "all",
                 "services": h.get("services_active") or h.get("services") or {},
                 "service_health": {
-                    name: "ok" if c["ok"] else f"down: {c['detail']}"
+                    name: "ok"
+                    if c["ok"]
+                    else "off (optional)"
+                    if name in (h.get("optional") or [])
+                    else f"down: {c['detail']}"
                     for name, c in (h.get("service_health") or {}).items()
                 },
                 "gpus": cards,

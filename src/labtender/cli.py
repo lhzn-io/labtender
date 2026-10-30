@@ -135,6 +135,8 @@ def cmd_host_set(a) -> None:
         health=_services(a.health),
         fallbacks=_fallbacks(a.fallback),
         files=_services(a.file),
+        optional={**dict.fromkeys(a.optional or [], True), **dict.fromkeys(a.required or [], False)}
+        or None,
     )
     tiers = ", ".join(h["accepts"]) or "all tiers"
     print(
@@ -143,7 +145,8 @@ def cmd_host_set(a) -> None:
     )
     for name, url in sorted(h["services"].items()):
         health = f" (health {h['health'][name]})" if name in h["health"] else ""
-        print(f"  service {name}: {url}{health}")
+        optional = ", optional" if name in h["optional"] else ""
+        print(f"  service {name}: {url}{health}{optional}")
         for fb in h["fallbacks"].get(name, []):
             print(f"    fallback: {fb}")
     if h["run_link"]:
@@ -173,8 +176,9 @@ def cmd_host_ls(a) -> None:
         for name, url in sorted(h["services"].items()):
             c = checks.get(name)
             via = f" via {c['base']}" if c and c["ok"] and c.get("base") not in (None, url) else ""
+            down = "off" if name in h["optional"] else "DOWN"
             state = (
-                f"  {'up' if c['ok'] else 'DOWN'}{via}"
+                f"  {'up' if c['ok'] else down}{via}"
                 f" ({c['detail']}, checked {_age(c['checked_at'])})"
                 if c
                 else ""
@@ -658,6 +662,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME=URL",
         help="replace a service's fallback addresses, tried in order (repeat for several);"
         " NAME= removes them",
+    )
+    s.add_argument(
+        "--optional",
+        action="append",
+        metavar="NAME",
+        help="a service that is down at times by design (a demo server on a laptop): shown as"
+        " off, with no flag",
+    )
+    s.add_argument(
+        "--required", action="append", metavar="NAME", help="undo --optional for a service"
     )
     s.add_argument(
         "--label",

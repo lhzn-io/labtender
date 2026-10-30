@@ -336,3 +336,25 @@ def test_cli_fallback_pairs():
     }
     with pytest.raises(ValueError):
         _fallbacks(["dashboard"])
+
+
+def test_an_optional_service_is_off_not_flagged(lab, web):
+    store, ledger, collector = lab
+    dead = "http://127.0.0.1:9"  # nothing listens on the discard port
+    store.add_host(
+        "box", actor="a", services={"hub": dead, "dash": web}, health={"hub": "/ok", "dash": "/ok"}
+    )
+    with pytest.raises(ValueError, match="no service"):
+        store.update_host("box", actor="a", optional={"other": True})
+    with pytest.raises(ValueError, match="no host"):
+        store.update_host("nobox", actor="a", optional={"hub": True})
+    h = store.update_host("box", actor="a", optional={"hub": True})
+    assert h["optional"] == ["hub"]
+    results = asyncio.run(collector.check_services("box"))
+    assert results["hub"][0] is False and results["dash"][0] is True
+    assert not [f for f in ledger.flags("box") if f["kind"] == "service-down"]
+    store.update_host("box", actor="a", optional={"hub": False})
+    asyncio.run(collector.check_services("box"))
+    assert [f for f in ledger.flags("box") if f["kind"] == "service-down"]
+    store.update_host("box", actor="a", optional={"hub": True})
+    assert store.update_host("box", actor="a", services={"hub": ""})["optional"] == []

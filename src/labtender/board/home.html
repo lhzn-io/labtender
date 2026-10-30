@@ -229,7 +229,8 @@ function lookReasons(h, now) {
   return [
     ...(!h.online ? [[`${n} offline`, "not answering"]] : []),
     ...[h.last_error, ...(h.probe_errors || [])].filter(Boolean).map((e) => [`${n} error ${e}`, e]),
-    ...Object.entries(h.service_health || {}).filter(([, c]) => !c.ok).map(([s]) => [`${n} service ${s}`, `${s} down`]),
+    ...Object.entries(h.service_health || {}).filter(([s, c]) => h.online && !c.ok && !(h.optional || []).includes(s))
+      .map(([s]) => [`${n} service ${s}`, `${s} down`]),
     ...(h.file_checks || []).filter((f) => f.late && f.seen).map((f) => [`${n} file ${f.name}`, `${f.name} late`]),
     ...(h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600)
       .map((r) => [staleKey(n, r), `${r.name} stale`]),
