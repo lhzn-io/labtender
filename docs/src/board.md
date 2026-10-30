@@ -3,8 +3,10 @@
 The board at `/` shows the lab's totals, then two tabs: **GPUs**, a tile per GPU with round
 gauges, grouped by kind, and **Hosts**, a card per host. The yachts close the page. The board opens
 on the tab last chosen in that browser (GPUs at first); `/#gpus` and `/#hosts` link to either. The
-Hosts tab says how many hosts need a look: not answering, a failing probe or service, or a stale
-run. `/compact` packs the same information into a narrow column. Both refresh every 15 s; readings
+Hosts tab says how many hosts need a look: not answering, a failing probe or service, a late file,
+a stale run or a flag. A host card's *seen* button dismisses its current reasons in that browser
+(the compact view honours them too); a new reason, or one that clears and returns, shows again.
+`/compact` packs the same information into a narrow column. Both refresh every 15 s; readings
 are as fresh as each host's probe interval (45 s by default, `labtender host set NAME --interval`).
 
 The strip along the top says what the page shows and how fresh it is; the sun or moon at its end
@@ -83,11 +85,11 @@ model it does not know (laptop parts among them), give it with `labtender card b
 
 ## Runs
 
-A live run shows on the tile of the GPU it runs on (or on its host's card when it is on none),
-with a progress bar, simulated time over target, wall rate, the estimated finish as a clock time,
+A live run shows on the tile of the GPU it runs on and on its host's card, with a progress bar, simulated time over target, wall rate, the estimated finish as a clock time,
 the GPU, and how long ago its log last moved. Finished, exited and vanished runs fold into the
 host's *earlier runs*, and so does a stale run once its log has been silent for 6 hours: by then it
-has almost always crashed, been stopped, or moved to another host.
+has almost always crashed, been stopped, or moved to another host. A stale run that never wrote a
+progress line folds away at once, marked *never started*: it failed or was stopped while setting up.
 
 A job that two watches both follow, such as a wrapper's folder and the job's own log folder,
 shows once while one live process holds both: the run whose log moved last, with the other
@@ -169,7 +171,9 @@ down is written to the audit trail.
 ## Flags
 
 Flags are information for people, never instructions. They are raised and cleared after each
-probe and whenever a claim changes, and every change is written to the audit trail.
+probe and whenever a claim changes, and every change is written to the audit trail. A GPU's
+flags show on its tile; every flag on a host and its GPUs (a GPU that has gone missing included)
+is listed on the host card and counts towards the host needing a look.
 
 | Flag | Raised when |
 |---|---|

@@ -83,7 +83,7 @@ function runHtml(r, now) {
   const eta = r.state === "running" && r.finish_at ? ` · done ${clock(r.finish_at)} (in ${dur(r.finish_at - now)})` : "";
   const code = (r.exit_code != null ? ` · exit ${r.exit_code}` : "") + (r.failure ? ` · ${esc(r.failure)}` : "");
   return `<div class="run">
-    <div class="top"><span class="name" title="${esc(r.dir)}">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}</span><span class="badge s-${esc(r.state)}">${esc(r.state)}</span></div>
+    <div class="top"><span class="name" title="${esc(r.dir)}">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}</span><span class="badge s-${esc(r.state)}">${r.never_started ? "never started" : esc(r.state)}</span></div>
     <div class="row"><span class="lab">${p == null ? "?" : p.toFixed(0) + " %"}</span>${bar(p, "var(--accent)")}<span class="val">log ${ago(r.last_log_at, now)}</span></div>
     <div class="facts">${t}${rate}${eta}${code}${where}</div>
   </div>`;

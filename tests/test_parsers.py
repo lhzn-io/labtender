@@ -133,3 +133,14 @@ def test_a_failure_line_ends_the_run_as_exited():
     assert r["state"] == "exited" and r["failure"] == "FATAL: out of memory"
     e["markers"] = {"DONE": ""}  # a completion file still wins
     assert parsers.interpret(spec, e, 0.0, 0.0)["state"] == "done"
+
+
+def test_a_stale_run_without_progress_never_started(spec):
+    quiet = parsers.interpret(spec, entry("loading forcing\n"), 1000.0 + 31 * 60, 0.0)
+    assert quiet["state"] == "stale" and quiet["never_started"] is True
+    r = parsers.interpret(spec, entry(LINE), 1000.0 + 31 * 60, 0.0)
+    assert r["state"] == "stale" and r["never_started"] is False
+    # A log longer than the part read may have progress further up: not claimed.
+    big = entry("loading forcing\n")
+    big["files"]["stdout.log"]["size"] = 10**7
+    assert parsers.interpret(spec, big, 1000.0 + 31 * 60, 0.0)["never_started"] is False

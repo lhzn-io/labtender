@@ -335,6 +335,7 @@ def host_view(
         "service_health": store.service_health(h["name"]),
         "services_active": active,
         "host_flags": ledger.flags(h["name"]),
+        "flags": ledger.host_flags(h["name"]),
     }
 
 

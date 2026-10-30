@@ -203,6 +203,7 @@ def test_api_metrics_and_pruning(lab, web):
         assert h["service_health"]["docs"]["ok"] is False
         (hv,) = http.get("/api/state").json()["hosts"]
         assert hv["host_flags"][0]["kind"] == "service-down"
+        assert [f["kind"] for f in hv["flags"]] == ["service-down"]
     store.update_host("box", actor="a", health={"docs": ""})
     asyncio.run(col.check_services("box"))
     assert list(store.service_health("box")) == ["dashboard"] and ledger.flags("box") == []

@@ -136,6 +136,7 @@ def interpret(spec: dict, entry: dict, probe_time: float, hub_time: float) -> di
         "target_h": None,
         "pct": None,
         "iter": None,
+        "never_started": False,
         "wall_min_per_sim_h": None,
         "eta_s": None,
         "finish_at": None,
@@ -208,6 +209,15 @@ def interpret(spec: dict, entry: dict, probe_time: float, hub_time: float) -> di
         # report a little short of it.
         near = out["pct"] is not None and out["pct"] >= done.get("near_target_pct", 99.0)
         out["state"] = "done" if done.get("at_target", True) and near else "stale"
+        # Silent before its first progress line: it never got going (it failed while setting up,
+        # or was stopped). Only claimed when the spec reads progress and the whole log was read,
+        # since a longer log may hold progress lines above the tail.
+        out["never_started"] = (
+            out["state"] == "stale"
+            and bool(prog)
+            and rec is None
+            and (log.get("size") or 0) <= spec.get("tail_bytes", 65536)
+        )
     else:
         out["state"] = "running"
 

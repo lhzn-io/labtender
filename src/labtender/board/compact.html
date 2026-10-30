@@ -66,17 +66,30 @@ function runHtml(r) {
   const name = r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(shortName(r.name))}</a>` : esc(shortName(r.name));
   return `<div class="crun" title="${esc(r.name)}"><span class="lab">${card}</span><span class="rname"><bdi>${name}</bdi></span><div class="bar"><i style="width:${clamp(r.pct)}%"></i></div><span class="val">${r.pct == null ? "?" : Math.round(r.pct) + "%"} ${when}</span></div>`;
 }
+// Reasons marked "seen" on the main board (in this browser) are not flagged here either; the keys
+// are the main board's.
+function seenMarks() {
+  try { return new Set(JSON.parse(localStorage.getItem("labtender-seen") || "[]")); } catch { return new Set(); }
+}
 function hostHtml(h, now) {
   let note = "", cls = "", tip = "";
+  const seen = seenMarks(), n = h.name;
   if (!h.online) { note = h.last_error ? "not answering" : "offline"; cls = "bad"; }
   else {
-    const stale = (h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < 6 * 3600);
+    const stale = (h.runs || []).filter((r) => r.state === "stale" && !r.never_started &&
+      now - (r.last_log_at ?? 0) < 6 * 3600 && !seen.has(`${n} stale ${r.dir}`));
     if (stale.length) { note = stale.length > 1 ? `${stale.length} stale runs` : "stale run"; cls = "warn"; tip = stale.map((r) => r.name).join(", "); }
   }
-  const down = Object.entries(h.service_health || {}).filter(([n, c]) => !c.ok && !(h.optional || []).includes(n));
+  const down = Object.entries(h.service_health || {}).filter(([s, c]) => h.online && !c.ok &&
+    !(h.optional || []).includes(s) && !seen.has(`${n} service ${s}`));
   if (!note && down.length) {
     note = down.length > 1 ? `${down.length} services down` : `${down[0][0]} down`;
     cls = "bad"; tip = down.map(([n, c]) => `${n}: ${c.detail}`).join("; ");
+  }
+  const flags = (h.flags || []).filter((f) => f.kind !== "service-down" && !seen.has(`${n} flag ${f.resource} ${f.kind}`));
+  if (!note && flags.length) {
+    note = flags.length > 1 ? `${flags.length} flags` : flags[0].kind.replace(/-/g, " ");
+    cls = "warn"; tip = flags.map((f) => `${f.resource}: ${f.kind} ${f.detail || ""}`).join("; ");
   }
   if (!note && (h.unplaced_procs || []).length) { note = "unpinned GPU use"; cls = "warn"; }
   if (!note && h.roaming) note = `roaming · ${h.roaming}`;

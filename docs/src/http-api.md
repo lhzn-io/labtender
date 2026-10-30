@@ -34,7 +34,7 @@ missing role or a forced release by an agent, 404 for an unknown host, 409 for a
 
 | Method and path | Returns |
 |---|---|
-| `GET /api/state` | Every host with its last probe: platform, CPU, memory, GPUs (with processes and a `ledger` view each), unplaced processes, runs from the last 72 h, `service_health`, and host-level flags in `host_flags` (such as `service-down`). |
+| `GET /api/state` | Every host with its last probe: platform, CPU, memory, GPUs (with processes and a `ledger` view each), unplaced processes, runs from the last 72 h, `service_health`, host-level flags in `host_flags` (such as `service-down`), and in `flags` every flag on the host and its GPUs. A run that went stale before its first progress line has `never_started` true. |
 | `GET /api/hosts?service=` | The registry, each host with its `service_health` and `services_active` (each service's address to use now, which may be a fallback); with `service`, only hosts that offer it. |
 | `POST /api/hosts` | Register a host (admin). Body: `name`, `transport` (`ssh` or `local`), `ssh`, `lifecycle`, `expires_in_h`, `interval_s`, `accepts`, `labels`, `services`, `health`, `fallbacks`, `run_link`. |
 | `PATCH /api/hosts/{name}` | Change a host (admin). Body: any of `interval_s`, `accepts`, `ssh`, `services` (merged; an empty address removes a service and its health path), `health` (merged; `{service: path}`, an empty path stops checking), `fallbacks` (`{service: [address, ...]}`, each list replacing that service's, an empty list removing it), `optional` (`{service: true}` marks a service as down at times by design, `false` undoes it), `run_link` (empty clears it). Labels are set with `labtender host set --label`. |

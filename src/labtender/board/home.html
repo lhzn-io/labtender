@@ -33,6 +33,7 @@
   .sub { color: var(--muted); font: 10px/1.5 var(--mono); margin: 2px 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .hsub { color: var(--muted); font: 10px/1.6 var(--mono); margin-top: 3px; }
   .hsub.late { color: var(--warn); }
+  .hostcard .flag { color: var(--warn); font: 10px/1.6 var(--mono); margin-top: 3px; }
   .hostcard > .top .seen { align-self: center; padding: 3px 8px 4px; margin-left: 4px; }
   .hold { color: var(--warn); font-size: 12px; margin: 0 0 4px; }
   .chart { position: relative; margin-top: 10px; }
@@ -149,6 +150,7 @@ function hostCard(h, now) {
   const errors = [h.last_error, ...(h.probe_errors || [])].filter(Boolean).map((e) => `<div class="err">${esc(e)}</div>`).join("");
   const files = (h.file_checks || []).map((f) => `<div class="hsub${f.late ? " late" : ""}" title="${esc(f.path)}, late after ${f.max_h} h">${esc(f.name)} ${
     f.age_s == null ? (f.seen ? "missing" : "not read yet") : `${dur(f.age_s)} ago`}${f.late && f.seen ? " · late" : ""}</div>`).join("");
+  const flags = shownFlags(h).map((f) => `<div class="flag" title="since ${clock(f.since)}">${esc(flagWords(f))}</div>`).join("");
   const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
   const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
   const all = [...(h.runs || [])].sort((a, b) =>
@@ -162,7 +164,7 @@ function hostCard(h, now) {
   return `<div class="hostcard">
     <div class="top"><span class="dot ${h.online ? "on" : ""}"></span><b>${esc(h.name)}</b>${roam}<span class="where">seen ${ago(h.last_seen, now)}${h.probe_ms != null ? `, ${h.probe_ms} ms` : ""}</span>${seenButton(h, now)}</div>
     <div class="hsub" title="${esc(info.cpu_model || "")}">${esc(facts)}</div>
-    ${servicesHtml(h, now)}${files}${errors}
+    ${servicesHtml(h, now)}${files}${errors}${flags}
     ${h.host_ledger ? ledgerHtml(h.host_ledger, now) : ""}
     ${unplaced ? `<ul class="procs">${unplaced}</ul>` : ""}
     ${live.map((r) => runHtml(r, now)).join("")}${earlier}
@@ -217,13 +219,23 @@ const staleKey = (h, r) => `${h} stale ${r.dir}`;
 
 // A stale run stays in view for a few hours (it may only be slow to log), then folds into the
 // host's earlier runs: by then it has almost always crashed, been stopped or moved elsewhere.
-// A stale run marked seen folds away at once.
+// A stale run marked seen folds away at once, and so does one that never started (silent before
+// its first progress line): it is listed there as "never started".
 const STALE_SHOWN_H = 6;
-const shownLive = (r, now) => r.state === "running" ||
-  (r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600 && !seen.has(staleKey(r.host, r)));
+const staleInView = (r, now) => r.state === "stale" && !r.never_started && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600;
+const shownLive = (r, now) => r.state === "running" || (staleInView(r, now) && !seen.has(staleKey(r.host, r)));
+
+// A host's flags and its GPUs' (service-down is left to the services line): "GPU 1: unclaimed
+// use (python 4121)".
+const shownFlags = (h) => (h.flags || []).filter((f) => f.kind !== "service-down");
+function flagWords(f) {
+  const gpu = f.resource.split("/")[1];
+  return `${gpu ? gpu.replace("gpu", "GPU ") + ": " : ""}${f.kind.replace(/-/g, " ")}${f.detail ? ` (${f.detail})` : ""}`;
+}
 
 // A host needs a look when it is not answering, its probe or a service fails, a file check is
-// late, or it holds a stale run still in view: one reason each, as [key, words].
+// late, it holds a stale run still in view, or it or a GPU of its has a flag: one reason each, as
+// [key, words].
 function lookReasons(h, now) {
   const n = h.name;
   return [
@@ -232,8 +244,8 @@ function lookReasons(h, now) {
     ...Object.entries(h.service_health || {}).filter(([s, c]) => h.online && !c.ok && !(h.optional || []).includes(s))
       .map(([s]) => [`${n} service ${s}`, `${s} down`]),
     ...(h.file_checks || []).filter((f) => f.late && f.seen).map((f) => [`${n} file ${f.name}`, `${f.name} late`]),
-    ...(h.runs || []).filter((r) => r.state === "stale" && now - (r.last_log_at ?? 0) < STALE_SHOWN_H * 3600)
-      .map((r) => [staleKey(n, r), `${r.name} stale`]),
+    ...(h.runs || []).filter((r) => staleInView(r, now)).map((r) => [staleKey(n, r), `${r.name} stale`]),
+    ...shownFlags(h).map((f) => [`${n} flag ${f.resource} ${f.kind}`, flagWords(f)]),
   ];
 }
 const openReasons = (h, now) => lookReasons(h, now).filter(([k]) => !seen.has(k));

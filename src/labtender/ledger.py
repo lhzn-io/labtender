@@ -618,6 +618,14 @@ class Ledger:
                 self.conn.execute("DELETE FROM flag WHERE resource = ? AND kind = ?", key)
                 self.store.audit("labtender", "flag.service-down.cleared", host)
 
+    def host_flags(self, host: str) -> list[dict]:
+        """Every flag on a host and on its GPUs, including GPUs that have gone missing."""
+        rows = self.conn.execute(
+            "SELECT * FROM flag WHERE resource = ? OR resource LIKE ? ORDER BY resource, kind",
+            (host, f"{host}/%"),
+        )
+        return [dict(r) for r in rows]
+
     def flags(self, resource: str | None = None) -> list[dict]:
         if resource:
             rows = self.conn.execute("SELECT * FROM flag WHERE resource = ?", (resource,))
