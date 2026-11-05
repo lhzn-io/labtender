@@ -105,11 +105,11 @@ function chart(id, g) {
 function procsHtml(list) {
   if (!list || !list.length) return "";
   return `<ul class="procs">${list.map((p) =>
-    `<li><b>${esc(p.comm)}</b> pid ${p.pid}, ${dur(p.elapsed_s)}${p.rss_kb ? `, ${(p.rss_kb / 1048576).toFixed(1)} GiB RSS` : ""} <span title="${esc(p.cmdline)}">${esc(p.cmdline)}</span></li>`).join("")}</ul>`;
+    `<li><b>${esc(p.comm)}</b> pid ${esc(p.pid)}, ${dur(p.elapsed_s)}${p.rss_kb ? `, ${(p.rss_kb / 1048576).toFixed(1)} GiB RSS` : ""} <span title="${esc(p.cmdline)}">${esc(p.cmdline)}</span></li>`).join("")}</ul>`;
 }
 
 function tile(g, i, now) {
-  const where = `${esc(g.host)}/gpu${g.index}`;
+  const where = `${esc(g.host)}/gpu${esc(g.index)}`;
   const title = g.card_name ? `<b title="${esc(g.uuid || "")}">${esc(g.card_name)}</b>` : `<b>${esc(g.model || `GPU ${g.index}`)}</b>`;
   const hold = g.hold ? `<div class="hold" title="Agents cannot claim it; people can">held back from agents: ${esc(g.hold)}</div>` : "";
   const claims = g.ledger ? ledgerHtml(g.ledger, now)
@@ -151,7 +151,7 @@ function hostCard(h, now) {
   const files = (h.file_checks || []).map((f) => `<div class="hsub${f.late ? " late" : ""}" title="${esc(f.path)}, late after ${f.max_h} h">${esc(f.name)} ${
     f.age_s == null ? (f.seen ? "missing" : "not read yet") : `${dur(f.age_s)} ago`}${f.late && f.seen ? " · late" : ""}</div>`).join("");
   const flags = shownFlags(h).map((f) => `<div class="flag" title="since ${clock(f.since)}">${esc(flagWords(f))}</div>`).join("");
-  const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${p.pid}: ${esc(p.note)}</li>`).join("");
+  const unplaced = (h.unplaced_procs || []).map((p) => `<li><b>${esc(p.comm)}</b> pid ${esc(p.pid)}: ${esc(p.note)}</li>`).join("");
   const order = { running: 0, stale: 1, exited: 2, gone: 3, done: 4 };
   const all = [...(h.runs || [])].sort((a, b) =>
     (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.last_log_at ?? 0) - (a.last_log_at ?? 0));

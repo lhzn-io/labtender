@@ -131,6 +131,27 @@ def card_key(host: str, idx: int, uuid: str | None) -> str:
     return uuid or f"local:{host}/gpu{idx}"
 
 
+# An ssh destination (an alias, user@host, or ssh://user@host:port). It is passed to ssh as an
+# argument, so it must never start with "-" (ssh would read it as an option, such as
+# -oProxyCommand=..., and run a command on this machine) or hold spaces.
+SSH_TARGET = re.compile(r"^[A-Za-z0-9_\[][A-Za-z0-9_@.:/%\[\]+-]{0,254}$")
+RUN_LINK_START = ("http://", "https://", "{service:")
+
+
+def check_ssh(ssh: str | None) -> str | None:
+    if ssh and not SSH_TARGET.match(ssh):
+        raise ValueError(f"ssh must be an alias, user@host or ssh:// address, not {ssh!r}")
+    return ssh
+
+
+def check_run_link(template: str | None) -> str | None:
+    """A run-link template must make an http(s) link: anything else (javascript:, data:)
+    would run in the browser of whoever clicks the run."""
+    if template and not template.lower().startswith(RUN_LINK_START):
+        raise ValueError("run_link must start with http://, https:// or {service:NAME}")
+    return template
+
+
 def check_services(services: dict) -> dict:
     for name, url in services.items():
         if not SERVICE_NAME.match(name):
@@ -263,6 +284,8 @@ class Store:
         fallbacks = {k: list(v) for k, v in check_fallbacks(fallbacks or {}, services).items() if v}
         if transport not in ("ssh", "local"):
             raise ValueError("transport must be ssh or local")
+        check_ssh(ssh or (name if transport == "ssh" else None))
+        check_run_link(run_link)
         if not 30 <= interval_s <= 3600:
             raise ValueError("interval_s must be between 30 and 3600 s")
         if lifecycle == "ephemeral" and expires_at is None:
@@ -331,6 +354,8 @@ class Store:
             raise ValueError("interval_s must be between 30 and 3600 s")
         if transport is not None and transport not in ("ssh", "local"):
             raise ValueError("transport must be ssh or local")
+        check_ssh(ssh)
+        check_run_link(run_link)
         changes = {
             k: v
             for k, v in (("interval_s", interval_s), ("ssh", ssh), ("transport", transport))

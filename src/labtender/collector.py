@@ -14,6 +14,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import shutil
 import time
 import urllib.error
@@ -28,6 +29,7 @@ from .ledger import Ledger
 
 log = logging.getLogger("labtender.collector")
 PROBE_TIMEOUT_S = 30
+MAX_PROBE_BYTES = 8 * 1024 * 1024  # a probe's answer is a few KiB to a few hundred KiB
 MIN_INTERVAL_S = 30
 WINDOWS_EVERY_S = 120  # the Windows sample costs a PowerShell start-up, so it runs less often
 WINDOWS_TIMEOUT_S = 60
@@ -76,9 +78,46 @@ def windows_command(host: dict, control_dir: Path) -> list[str]:
         f"ControlPath={control_dir}/%C",
         "-o",
         "ControlPersist=300",
+        "--",  # the destination is never read as an option, whatever is stored
         host["ssh"],
         " ".join(remote),
     ]
+
+
+async def read_bounded(proc, data: bytes | None = None, limit: int = MAX_PROBE_BYTES):
+    """A subprocess's stdout and stderr, like ``communicate``, but stopped once stdout passes
+    ``limit`` bytes: a monitored host answers with whatever it likes, and must not be able to
+    fill the hub's memory."""
+
+    async def read(stream, cap: int) -> bytes:
+        buf = bytearray()
+        while chunk := await stream.read(65536):
+            buf += chunk
+            if len(buf) > cap:
+                raise RuntimeError(f"answer over {cap // (1024 * 1024)} MiB")
+        return bytes(buf)
+
+    async def drain_err(stream) -> bytes:
+        buf = bytearray()
+        while chunk := await stream.read(65536):
+            buf = (buf + chunk)[-65536:]  # only the end is ever shown
+        return bytes(buf)
+
+    if data is not None:
+        proc.stdin.write(data)
+        await proc.stdin.drain()
+        proc.stdin.close()
+    try:
+        out, err = await asyncio.gather(
+            read(proc.stdout, limit),
+            drain_err(proc.stderr) if proc.stderr else asyncio.sleep(0, b""),
+        )
+    except RuntimeError:
+        proc.kill()
+        await proc.wait()
+        raise
+    await proc.wait()
+    return out, err
 
 
 async def run_windows(host: dict, control_dir: Path) -> dict:
@@ -89,7 +128,7 @@ async def run_windows(host: dict, control_dir: Path) -> dict:
         stderr=asyncio.subprocess.DEVNULL,
     )
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), WINDOWS_TIMEOUT_S)
+        out, _ = await asyncio.wait_for(read_bounded(proc), WINDOWS_TIMEOUT_S)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -171,6 +210,7 @@ def probe_command(host: dict, arg: str, control_dir: Path) -> list[str]:
         f"ControlPath={control_dir}/%C",
         "-o",
         "ControlPersist=300",
+        "--",  # the destination is never read as an option, whatever is stored
         host["ssh"],
         " ".join(remote),
     ]
@@ -185,7 +225,7 @@ async def run_probe(host: dict, request: dict, control_dir: Path) -> dict:
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        out, err = await asyncio.wait_for(proc.communicate(probe_source()), PROBE_TIMEOUT_S)
+        out, err = await asyncio.wait_for(read_bounded(proc, probe_source()), PROBE_TIMEOUT_S)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -193,7 +233,75 @@ async def run_probe(host: dict, request: dict, control_dir: Path) -> dict:
     if proc.returncode != 0:
         msg = err.decode(errors="replace").strip().splitlines()
         raise RuntimeError(f"probe exited {proc.returncode}: {msg[-1] if msg else ''}")
-    return json.loads(out)
+    return clean_probe(json.loads(out))
+
+
+# Probe fields the board does arithmetic on or puts into markup: a host answers with whatever
+# it likes (anyone with a shell there can put their own python3 first on the PATH), so these
+# are made numbers here, once, and everything else that reaches the board is escaped there.
+GPU_NUMBERS = (
+    "util_pct",
+    "mem_used_mib",
+    "mem_total_mib",
+    "power_w",
+    "power_limit_w",
+    "temp_c",
+    "clock_mhz",
+    "clock_max_mhz",
+)
+PROC_NUMBERS = ("elapsed_s", "cpu_s", "rss_kb", "gpu_mem_mib", "used_mib")
+MAX_GPUS = 64
+MAX_PROCS = 1024
+MAX_RUNS = 256
+
+
+def number(v) -> float | None:
+    if isinstance(v, bool) or not isinstance(v, int | float):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+    return v if math.isfinite(v) else None
+
+
+def clean_probe(doc) -> dict:
+    """A probe document with the shape the hub relies on: lists capped, GPU indexes and PIDs
+    whole numbers, readings numbers or None. Raises ValueError for anything not a probe."""
+    if not isinstance(doc, dict):
+        raise ValueError("probe answer is not an object")
+    t = number(doc.get("time"))
+    if t is None:
+        raise ValueError("probe answer has no time")
+    doc["time"] = t
+    gpus = []
+    for i, g in enumerate(list(doc.get("gpus") or [])[:MAX_GPUS]):
+        if not isinstance(g, dict):
+            continue
+        idx = number(g.get("index"))
+        g["index"] = int(idx) if idx is not None and 0 <= idx < 1024 else i
+        for k in GPU_NUMBERS:
+            if k in g:
+                g[k] = number(g[k])
+        gpus.append(g)
+    doc["gpus"] = gpus
+    procs = []
+    for p in list(doc.get("gpu_procs") or [])[:MAX_PROCS]:
+        if not isinstance(p, dict):
+            continue
+        pid = number(p.get("pid"))
+        if pid is None or pid < 0:
+            continue
+        p["pid"] = int(pid)
+        for k in PROC_NUMBERS:
+            if k in p:
+                p[k] = number(p[k])
+        procs.append(p)
+    doc["gpu_procs"] = procs
+    doc["runs"] = [r for r in list(doc.get("runs") or [])[:MAX_RUNS] if isinstance(r, dict)]
+    doc["errors"] = [str(e)[:500] for e in list(doc.get("errors") or [])[:50]]
+    if not isinstance(doc.get("host"), dict):
+        doc["host"] = {}
+    return doc
 
 
 def attribute(doc: dict) -> None:
@@ -276,11 +384,11 @@ class Collector:
         hub_now = time.time()
         runs = []
         for entry in doc.pop("runs", []):
-            w = watches[entry["spec"]]
             try:
+                w = watches[entry["spec"]]
                 runs.append(parsers.interpret(self.specs[w["parser"]], entry, doc["time"], hub_now))
-            except (ValueError, KeyError) as e:
-                log.warning("%s: cannot parse %s with %s: %s", name, entry["dir"], w["parser"], e)
+            except (ValueError, KeyError, IndexError, TypeError) as e:
+                log.warning("%s: cannot parse run %r: %s", name, str(entry.get("dir"))[:200], e)
         link_runs(doc, runs)
         self.store.record_probe(name, doc, runs)
         if self.ledger:

@@ -12,6 +12,7 @@ thread, alongside the collector and the charter reaper.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import re
 import time
@@ -41,6 +42,42 @@ LINK_FIELD = re.compile(r"\{(service:[A-Za-z0-9_-]+|name|dir|host)\}")
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+PAGES = ("home.html", "compact.html", "prices.html", "purser.html")
+INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.S)
+API_CSP = "default-src 'none'; frame-ancestors 'none'"
+_csp_cache: dict[tuple, str] = {}
+
+
+def board_csp() -> str:
+    """The board's Content-Security-Policy: scripts from this service, plus each page's own
+    inline script by its hash (pages are read from disk, so the hashes follow a deploy)."""
+    board = resources.files("labtender").joinpath("board")
+    texts = tuple(board.joinpath(p).read_text("utf-8") for p in PAGES)
+    key = tuple(hash(t) for t in texts)
+    if key not in _csp_cache:
+        hashes = sorted(
+            {
+                "'sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode() + "'"
+                for t in texts
+                for s in INLINE_SCRIPT.findall(t)
+            }
+        )
+        _csp_cache.clear()
+        _csp_cache[key] = "; ".join(
+            (
+                "default-src 'self'",
+                f"script-src 'self' {' '.join(hashes)}",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data:",
+                "object-src 'none'",
+                "base-uri 'none'",
+                "form-action 'self'",
+                "frame-ancestors 'none'",
+            )
+        )
+    return _csp_cache[key]
 
 
 def merge_twins(runs: list[dict]) -> list[dict]:
@@ -93,7 +130,10 @@ def run_link(template: str | None, host: dict, run: dict) -> str | None:
         return values[key]
 
     link = LINK_FIELD.sub(fill, template)
-    return None if missing else link
+    # Only http(s) links reach the board, whatever an older database holds.
+    if missing or not link.lower().startswith(("http://", "https://")):
+        return None
+    return link
 
 
 class HostIn(BaseModel):
@@ -385,6 +425,13 @@ def create_app(
         # browser asks again each time rather than keep an old copy. Fonts keep their week.
         response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-cache")
+        # The board's pages load scripts and styles only from this service, so markup that slips
+        # past escaping (from a probed host, a note, a run name) cannot load or run anything
+        # else, and no other site may frame the purser's buttons.
+        is_page = response.headers.get("content-type", "").startswith("text/html")
+        response.headers.setdefault("Content-Security-Policy", board_csp() if is_page else API_CSP)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         return response
 
     app.state.store = store
@@ -403,7 +450,10 @@ def create_app(
                 raise HTTPException(401, "unknown or revoked token")
             return ident
         user = request.headers.get(proxy.header) if proxy else None
-        if user and proxy.trusts(request.client.host if request.client else None):
+        if user and proxy.trusts(
+            request.client.host if request.client else None,
+            request.headers.get(proxy.secret_header),
+        ):
             who = proxy.identity(user)
             if who is None:
                 raise HTTPException(403, f"{user} is not on this labtender's allow-list")

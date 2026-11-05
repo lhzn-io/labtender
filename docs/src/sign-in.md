@@ -11,8 +11,11 @@ labtender does not talk to the identity provider itself. A proxy such as
 [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) does that, and passes the signed-in
 user to labtender in a header. labtender's part is small:
 
-- It believes the header only from the proxy's own addresses (`trusted`). From anywhere else the
-  header is ignored.
+- It believes the header only from the proxy's own addresses (`trusted`), and only when the
+  request also carries a secret shared with the proxy (`X-Labtender-Proxy-Secret`). Otherwise the
+  header is ignored. The address alone is not enough: any other process on the proxy's machine
+  connects from the same address, and so can a web page that points its own name at
+  `127.0.0.1`. Neither knows the secret.
 - It maps the user to a labtender identity and roles through an allow-list. Anyone signed in but
   not on the list is refused. Roles come only from the list, never from the identity provider.
 - A bearer token, when one is sent, always decides. A bad token is refused, never rescued by the
@@ -30,6 +33,7 @@ Write `$LABTENDER_HOME/proxy.toml` and restart the service:
 ```toml
 header = "X-Auth-Request-Email"      # the header the proxy sets
 trusted = ["127.0.0.1", "::1"]       # the proxy's addresses, as labtender sees them
+secret = "<at least 32 characters>"  # the proxy adds it to every request as X-Labtender-Proxy-Secret
 
 [[allow]]
 user = "dana@example.org"            # the header's value (compared ignoring case)
@@ -41,9 +45,10 @@ identity = "pat"
 roles = ["viewer", "operator", "admin", "purser"]   # default: viewer, operator, admin
 ```
 
-Without `proxy.toml` nothing changes. A file labtender cannot use (an unknown role, an agent
-identity, `Authorization` as the header) stops the service at start, so a mistake is never
-silently ignored. `labtender serve` uses the real peer address of each connection and never one
+Make the secret with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`, and keep
+`proxy.toml` readable only by the service's user. Without `proxy.toml` nothing changes. A file
+labtender cannot use (an unknown role, an agent identity, `Authorization` as the header, a
+missing or short secret) stops the service at start, so a mistake is never silently ignored. `labtender serve` uses the real peer address of each connection and never one
 from `X-Forwarded-For`, so `trusted` means what it says. `GET /api/whoami` answers with
 `"via": "proxy"` for an identity the proxy supplied.
 
@@ -100,6 +105,8 @@ token itself.
                    redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
                }
            }
+           # The secret from proxy.toml, here read from the environment Caddy runs in.
+           request_header X-Labtender-Proxy-Secret {$LABTENDER_PROXY_SECRET}
            reverse_proxy 127.0.0.1:8795
        }
    }
@@ -143,13 +150,18 @@ certificates and no other proxy.
    ```toml
    header = "Cf-Access-Authenticated-User-Email"
    trusted = ["127.0.0.1", "::1"]   # cloudflared connects from this machine
+   secret = "<at least 32 characters>"
 
    [[allow]]
    user = "dana@example.org"
    identity = "dana"
    ```
 
+4. **Add the secret at Cloudflare's edge** with a request header Transform Rule for the
+   hostname: *Set static*, header `X-Labtender-Proxy-Secret`, value the secret. The edge
+   overwrites whatever a browser sent under that name.
+
 Agents and the CLI can keep using the service's address on the lab network with their tokens;
 requests through the tunnel without an Access sign-in never reach labtender. `cloudflared`
-connects to labtender from the same machine, so any other local process could also send the
-header: run the service on a machine where only trusted users have accounts.
+connects to labtender from the same machine, but another local process that sends the header
+without the secret is ignored.

@@ -32,6 +32,17 @@ enforcement is social, plus whatever your job wrappers do with `labtender prefli
   once per browser. Anyone using that browser account can act with it: on a shared computer,
   use *forget token* when done. A revoked token is dropped the next time it is refused.
 - Agents cannot force-release someone else's claim; people can, with a recorded reason.
+- The service's own machine is the root of trust. Its user holds the database, the cloud
+  credentials and the SSH key, and `labtender token create` there writes to the database
+  directly, so anyone with a shell as that user can mint any token, `purser` included. Run no
+  agent as that user, and give that machine's accounts only to people you would make pursers.
+- Host entries are checked before use: an `ssh` target must be an alias, `user@host` or an
+  `ssh://` address (never something `ssh` would read as an option), and a run link must make an
+  `http(s)` link. What a probed host answers is checked too: its size is capped, and every
+  reading the board draws is made a number. The board's pages carry a Content-Security-Policy
+  that runs only their own scripts.
+- A charter's set-up output can name private paths or print its environment, so only operators
+  can read a charter's log; everyone else sees one line of a failed step's error.
 
 ## Money
 
@@ -39,8 +50,9 @@ Cloud charters spend real money, so the rules for them are strict (see [](yachts
 
 - Every charter is priced at its worst case, and nothing is approved that would pass the
   project's monthly cap.
-- Agents can only charter within the pre-approval limits a purser set; anything bigger waits for
-  a person with the `purser` role, a role agents can never hold.
+- Agents can only charter within the pre-approval limits a purser set, against the project their
+  charter profile names; anything bigger waits for a person with the `purser` role, a role agents
+  can never hold.
 - Two layers end every yacht: labtender's reaper (idle, time limit, budget) and a timer on the
   provider's side set at create, so a yacht dies on time even if labtender is down.
 - A failed destroy is retried every minute and shown in red; a daily sweep destroys machines that

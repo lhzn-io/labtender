@@ -18,6 +18,10 @@ plugins that talk to clouds only do what the core tells them.
 | Purser approval | Anything bigger waits, with the reasons shown, for a person holding the `purser` role, who approves or rejects it on the board or with the CLI. |
 | Pursers | `purser` is never a default role. It is granted by name (`labtender token grant dana purser`) and only to people; the service refuses it for agent tokens. Only pursers change limits. |
 
+A charter draws on the project its profile names. Only a purser may name another project in a
+request, since a name labtender has not seen starts with the default limits, and letting anyone
+choose one would give pre-approval no ceiling.
+
 The limits are per project and modelled on usage limits: an agent can see what it has left today
 and this week (`labtender budget ls`, or the MCP `charter_quote` and `charter_status` tools), and
 when it runs out, requests go to a person instead of failing silently.
@@ -59,7 +63,9 @@ Two independent layers make sure an idle yacht stops billing.
      content, if any, is taken as an exit status, and anything but `0` shows in the end reason as
      `work done, exit N`). With a `done_file`, the idle limit only catches work that crashed
      without writing it;
-   - it reaches its time limit;
+   - it nears its time limit: landing starts early enough for the land commands
+     (`land_timeout_min`) and the destroy (5 minutes) to finish inside `max_hours`, so the actual
+     cost stays within the reserved worst case. The lead is never more than half the charter;
    - its project's actual spend reaches the monthly cap;
    - its requester or a purser ends it.
 
@@ -98,7 +104,7 @@ accelerators = "L4:1"      # GPU type and count
 infra = ""                 # optional: a cloud, or cloud/region, to stay on
 max_hours = 4              # time limit (the worst case is the rate times this)
 idle_min = 20              # idle limit
-project = "default"        # whose budget pays
+project = "default"        # whose budget pays (only a purser may name another in a request)
 tier = "normal"            # tier of the claims on the yacht
 
 # Commands run on the labtender service's machine; {ssh} is the yacht's SSH alias.
@@ -110,7 +116,7 @@ land = ["rsync -a {ssh}:eval/results/ ~/work/eval/results/"]
 # {charter}, {cost_usd} (so far) and {rate_usd_h} are filled in for land commands too, and set as
 # LABTENDER_CHARTER, LABTENDER_COST_USD and LABTENDER_RATE_USD_H, so a step can note the cost
 # beside the results; the final cost is in GET /api/charters/{id} once the yacht is destroyed.
-land_timeout_min = 15
+land_timeout_min = 15        # the set-up, sync and land timeouts are each 1 to 180 min
 bootstrap_timeout_min = 30   # set-up runs before the yacht is live, so the reaper never sees it
 sync = ["rsync -a {ssh}:eval/results/ ~/work/eval/results/"]  # copies taken while it runs
 sync_every_min = 10

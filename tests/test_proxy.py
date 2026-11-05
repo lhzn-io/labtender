@@ -10,6 +10,7 @@ from labtender.server import create_app, token_hash
 CONFIG = """
 header = "X-Auth-Request-Email"
 trusted = ["127.0.0.1", "::1"]
+secret = "ssssssssssssssssssssssssssssssssssssssss"
 
 [[allow]]
 user = "Dana@Example.org"
@@ -20,8 +21,9 @@ user = "pat@example.org"
 identity = "pat"
 roles = ["viewer", "operator", "admin", "purser"]
 """
-DANA = {"X-Auth-Request-Email": "dana@example.org"}
-PAT = {"X-Auth-Request-Email": "pat@example.org"}
+SECRET = {"X-Labtender-Proxy-Secret": "s" * 40}
+DANA = {"X-Auth-Request-Email": "dana@example.org", **SECRET}
+PAT = {"X-Auth-Request-Email": "pat@example.org", **SECRET}
 WRITE = {"X-Requested-With": "labtender"}
 
 
@@ -64,7 +66,7 @@ def test_the_header_counts_only_from_the_proxy(lab):
 
 def test_unknown_users_are_refused(lab):
     _, http, _ = lab
-    r = http.get("/api/whoami", headers={"X-Auth-Request-Email": "eve@example.org"})
+    r = http.get("/api/whoami", headers={"X-Auth-Request-Email": "eve@example.org", **SECRET})
     assert r.status_code == 403 and "allow-list" in r.json()["detail"]
 
 
@@ -106,7 +108,8 @@ def test_a_bad_config_stops_the_service(tmp_path):
     with pytest.raises(ProxyError):
         load(tmp_path, store)
     (tmp_path / "proxy.toml").write_text(
-        'header = "X-User"\n[[allow]]\nuser = "a@b"\nidentity = "a"\nroles = ["root"]\n'
+        f'header = "X-User"\nsecret = "{"s" * 40}"\n'
+        '[[allow]]\nuser = "a@b"\nidentity = "a"\nroles = ["root"]\n'
     )
     with pytest.raises(ProxyError, match="unknown role"):
         load(tmp_path, store)

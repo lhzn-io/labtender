@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
 
+READY_TRY_S = 30  # one "does it answer over SSH" attempt
+
 BUILTIN = {
     "fake": "labtender.yachts.fake:FakePlugin",
     "skypilot": "labtender.yachts.skypilot:SkyPilotPlugin",
@@ -80,15 +82,25 @@ class Plugin:
             return
         deadline = time.monotonic() + timeout_s
         while True:
-            r = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", yacht.ssh or "", "true"],
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode == 0:
+            # ConnectTimeout covers only the connection: a login that hangs after it (a broken
+            # shell start-up file on the image) must not hold the charter in launching forever.
+            try:
+                r = subprocess.run(
+                    [
+                        *("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"),
+                        *("--", yacht.ssh or "", "true"),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=READY_TRY_S,
+                )
+                ok, why = r.returncode == 0, r.stderr.strip()[-300:]
+            except subprocess.TimeoutExpired:
+                ok, why = False, f"no answer within {READY_TRY_S} s"
+            if ok:
                 return
             if time.monotonic() > deadline:
-                raise PluginError(f"{yacht.ref} did not answer over SSH: {r.stderr.strip()[-300:]}")
+                raise PluginError(f"{yacht.ref} did not answer over SSH: {why}")
             time.sleep(10)
 
     def bootstrap(

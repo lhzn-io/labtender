@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import secrets
 import time
@@ -65,6 +66,8 @@ BALANCE_S = 300  # how long a provider balance is reused
 GONE_STATES = ("gone", "stopped", "terminated", "down")  # lost at once; anything else twice
 LAND_TRIES = 3
 LAND_MARGIN_S = 600  # no landing retry this close to the provider-side time limit
+DESTROY_LEAD_S = 300  # time limit: teardown starts this long (plus landing) before max_hours
+MAX_STEP_MIN = 180  # longest a profile's set-up, sync or landing may be given, in minutes
 PRICE_TOLERANCE = 0.02  # a re-quote may rise this much (plus half a cent) without asking again
 PURSER_ACTIONS = (
     "charter.request",
@@ -186,6 +189,11 @@ def check_profile(p: dict) -> dict:
         if not isinstance(w, dict) or not w.get("parser") or not w.get("glob"):
             raise CharterError(f"profile {p['name']}: each watch needs a parser and a glob")
     check_bounds(float(p["max_hours"]), float(p["idle_min"]))
+    for key in ("land_timeout_min", "sync_timeout_min", "bootstrap_timeout_min"):
+        if not 1 <= float(p[key]) <= MAX_STEP_MIN:
+            raise CharterError(f"profile {p['name']}: {key} must be between 1 and {MAX_STEP_MIN}")
+    if not 1 <= float(p["sync_every_min"]) <= 24 * 60:
+        raise CharterError(f"profile {p['name']}: sync_every_min must be between 1 and 1440")
     if p["tier"] not in TIERS:
         raise CharterError(f"profile {p['name']}: tier must be one of {', '.join(TIERS)}")
     if p["accelerators"] and not ACCEL.match(p["accelerators"]):
@@ -449,8 +457,9 @@ class Charters:
         bad = [k for k in changes if k not in DEFAULT_LIMITS]
         if bad:
             raise CharterError(f"unknown limit {bad[0]}")
-        if any(v < 0 for v in changes.values()):
-            raise CharterError("limits cannot be negative")
+        # NaN compares false against everything, so a NaN cap would let every charter through.
+        if any(not math.isfinite(v) or v < 0 for v in changes.values()):
+            raise CharterError("limits must be finite and not negative")
         if not changes:
             raise CharterError("nothing to change")
         new = {**self.limits(project), **changes}
@@ -588,6 +597,14 @@ class Charters:
     ) -> dict:
         """Record a charter: approved at once (pre-approved, or by a purser asking), or waiting."""
         p = self.profile(profile_name)
+        # The budget a charter draws on comes from its profile. Only a purser, who sets budgets
+        # anyway, may charge another project: otherwise each new name would bring a fresh set
+        # of default limits, and pre-approval would have no ceiling.
+        if project and project != p["project"] and not is_purser(kind, roles):
+            raise CharterError(
+                f"profile {profile_name} charges project {p['project']!r}; only a purser may"
+                " charge another project"
+            )
         project = project or p["project"]
         hours = float(max_hours or p["max_hours"])
         idle = float(idle_min or p["idle_min"])
@@ -892,6 +909,15 @@ class Charters:
         except Exception as e:  # noqa: BLE001  (any failure must still destroy the machine)
             log.warning("charter %s launch failed: %s", cid, e)
             full = clean_error(str(e))
+            # The audit trail is open to read, so it gets one line; the whole error goes to the
+            # charter's log, which only operators can read.
+            try:
+                path = self.log_path(cid)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(f"\n== launch failed ({time.strftime('%H:%M:%S')})\n{full}\n")
+            except OSError as le:
+                log.warning("charter %s: could not log the launch error: %s", cid, le)
             with self.store.tx():
                 self._set(
                     cid,
@@ -899,7 +925,10 @@ class Charters:
                     end_reason=f"launch failed: {summarize_error(full)}",
                 )
                 self.store.audit(
-                    "labtender", "charter.launch-failed", f"charter/{cid}", error=full[:ERROR_KEEP]
+                    "labtender",
+                    "charter.launch-failed",
+                    f"charter/{cid}",
+                    error=summarize_error(full),
                 )
             await self._destroy(self.charter(cid), failed=True)
 
@@ -926,7 +955,7 @@ class Charters:
     def _reap_reason(self, c: dict, now: float) -> str | None:
         if c["stop_reason"]:
             return c["stop_reason"]
-        if c["ends_by"] and now >= c["ends_by"]:
+        if c["ends_by"] and now >= c["ends_by"] - land_lead(c):
             return "time limit"
         use = self.usage(c["project"], now)
         if use["month_actual_usd"] >= use["limits"]["monthly_usd"]:
@@ -1311,8 +1340,23 @@ def is_purser(kind: str, roles: list[str]) -> bool:
     return kind == "person" and "purser" in roles
 
 
+def land_lead(c: dict) -> float:
+    """How long before its time limit a charter starts landing, so that landing and destroy fit
+    inside ``max_hours`` and the actual cost stays within the reserved worst case. Never more
+    than half the charter, so a short one is not landed as soon as it is live."""
+    spec = c.get("spec") or {}
+    lead = DESTROY_LEAD_S
+    if spec.get("land") and not c.get("lost_at"):
+        lead += float(spec.get("land_timeout_min", 15.0)) * 60
+    return min(lead, c["max_hours"] * 3600 / 2)
+
+
 def public(c: dict) -> dict:
-    """A charter without its profile commands (they may name private paths)."""
+    """A charter as anyone may read it: without its profile commands (they may name private
+    paths) and with its error cut to one line, since a set-up step's output can name private
+    paths and hosts or print its environment. The whole text is in the charter's log."""
     out = {k: v for k, v in c.items() if k != "spec"}
     out["accelerators"] = (c.get("spec") or {}).get("accelerators")
+    if c.get("last_error"):
+        out["last_error"] = summarize_error(c["last_error"])
     return out
