@@ -5,6 +5,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 from labtender import probe
 from labtender.collector import attribute, link_runs
 
@@ -146,6 +148,9 @@ def test_link_runs_by_open_log():
     assert "pid" not in runs[1] and runs[1]["card"] is None
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="reads /proc; only Linux GPU processes use it"
+)
 def test_probe_lists_open_logs(tmp_path):
     log = tmp_path / "run.log"
     with open(log, "w") as f:
