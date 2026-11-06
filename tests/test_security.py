@@ -229,19 +229,53 @@ def test_a_probe_answer_that_is_not_a_probe_is_refused():
             clean_probe(bad)
 
 
-def test_an_oversized_probe_answer_is_cut_off():
+async def spawn(code):
+    return await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        code,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+
+# A host that never stops writing, on both pipes, so they are full when the reader gives up.
+FLOOD = "import sys\nwhile True:\n    sys.stdout.write('x' * 65536); sys.stderr.write('y' * 4096)"
+
+
+@pytest.mark.parametrize("repeat", range(5))  # the hang this guards against was a race
+def test_an_oversized_probe_answer_is_cut_off(repeat):
     async def go():
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            "import sys; sys.stdout.write('x' * 3_000_000)",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await read_bounded(proc, limit=1_000_000)
+        proc = await spawn(FLOOD)
+        try:
+            # The outer bound turns a regression into a failure instead of a hung test run.
+            await asyncio.wait_for(read_bounded(proc, limit=1_000_000), 20)
+        finally:
+            assert proc.returncode is not None  # killed and collected
 
     with pytest.raises(RuntimeError, match="over"):
         asyncio.run(go())
+
+
+def test_a_probe_that_times_out_is_killed_and_collected():
+    async def go():
+        proc = await spawn("import sys, time\nsys.stdout.write('x' * 300_000)\ntime.sleep(60)")
+        t0 = asyncio.get_running_loop().time()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(read_bounded(proc), 0.5)
+        assert proc.returncode is not None
+        assert asyncio.get_running_loop().time() - t0 < 15
+
+    asyncio.run(go())
+
+
+def test_a_probe_answer_under_the_limit_comes_back_whole():
+    async def go():
+        proc = await spawn("import sys; sys.stdout.write('x' * 300_000); sys.stderr.write('e')")
+        return await asyncio.wait_for(read_bounded(proc), 20)
+
+    out, err = asyncio.run(go())
+    assert len(out) == 300_000 and err == b"e"
 
 
 # ------------------------------------------------------------------ proxy and pages

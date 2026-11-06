@@ -30,6 +30,7 @@ from .ledger import Ledger
 log = logging.getLogger("labtender.collector")
 PROBE_TIMEOUT_S = 30
 MAX_PROBE_BYTES = 8 * 1024 * 1024  # a probe's answer is a few KiB to a few hundred KiB
+REAP_TIMEOUT_S = 10
 MIN_INTERVAL_S = 30
 WINDOWS_EVERY_S = 120  # the Windows sample costs a PowerShell start-up, so it runs less often
 WINDOWS_TIMEOUT_S = 60
@@ -103,21 +104,47 @@ async def read_bounded(proc, data: bytes | None = None, limit: int = MAX_PROBE_B
             buf = (buf + chunk)[-65536:]  # only the end is ever shown
         return bytes(buf)
 
-    if data is not None:
-        proc.stdin.write(data)
-        await proc.stdin.drain()
-        proc.stdin.close()
+    tasks = []
     try:
-        out, err = await asyncio.gather(
-            read(proc.stdout, limit),
-            drain_err(proc.stderr) if proc.stderr else asyncio.sleep(0, b""),
-        )
-    except RuntimeError:
-        proc.kill()
+        if data is not None:
+            proc.stdin.write(data)
+            await proc.stdin.drain()
+            proc.stdin.close()
+        tasks.append(asyncio.ensure_future(read(proc.stdout, limit)))
+        if proc.stderr:
+            tasks.append(asyncio.ensure_future(drain_err(proc.stderr)))
+        out, *rest = await asyncio.gather(*tasks)
         await proc.wait()
+    except BaseException:  # too much, a timeout from the caller, or anything else
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await reap(proc)
         raise
-    await proc.wait()
-    return out, err
+    return out, rest[0] if rest else b""
+
+
+async def reap(proc) -> None:
+    """Kill a subprocess and collect it. Since Python 3.12 ``wait()`` returns only once the
+    process's pipes have closed, and a pipe nobody reads stops at 128 KiB and never does, so what
+    is left in them is read and thrown away first. A pipe held open by some other process is
+    given up on after ``REAP_TIMEOUT_S``, so one host can never stall its poll loop."""
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass  # already gone
+
+    async def discard(stream) -> None:
+        while await stream.read(65536):
+            pass
+
+    streams = [s for s in (proc.stdout, proc.stderr) if s is not None]
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(discard(s) for s in streams), proc.wait()), REAP_TIMEOUT_S
+        )
+    except TimeoutError:
+        pass
 
 
 async def run_windows(host: dict, control_dir: Path) -> dict:
@@ -129,9 +156,7 @@ async def run_windows(host: dict, control_dir: Path) -> dict:
     )
     try:
         out, _ = await asyncio.wait_for(read_bounded(proc), WINDOWS_TIMEOUT_S)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
+    except TimeoutError:  # read_bounded has already killed and collected the process
         raise RuntimeError(f"Windows sample timed out after {WINDOWS_TIMEOUT_S} s") from None
     if proc.returncode != 0:
         raise RuntimeError(f"Windows sample exited {proc.returncode}")
@@ -226,9 +251,7 @@ async def run_probe(host: dict, request: dict, control_dir: Path) -> dict:
     )
     try:
         out, err = await asyncio.wait_for(read_bounded(proc, probe_source()), PROBE_TIMEOUT_S)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
+    except TimeoutError:  # read_bounded has already killed and collected the process
         raise RuntimeError(f"probe timed out after {PROBE_TIMEOUT_S} s") from None
     if proc.returncode != 0:
         msg = err.decode(errors="replace").strip().splitlines()
