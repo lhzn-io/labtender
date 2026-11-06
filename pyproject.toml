@@ -60,6 +60,10 @@ path = "src/labtender/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/labtender"]
 
+[tool.hatch.build.targets.sdist]
+# uv.lock is not tracked, but `uv run` writes one before a build, so keep it out by name.
+exclude = ["uv.lock"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
