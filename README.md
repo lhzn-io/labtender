@@ -3,7 +3,7 @@
 A lab board and GPU ledger for a small lab shared by people and AI agents, with budget-capped
 cloud GPUs for when the lab is full.
 
-![The labtender board for a fictional lab: five hosts, their GPUs, holders, queues, running jobs and a chartered cloud GPU](docs/src/_static/board.png)
+![The labtender board for a fictional lab: five hosts, their GPUs, holders, queues, running jobs and a chartered cloud GPU](https://raw.githubusercontent.com/lhzn-io/labtender/main/docs/src/_static/board.png)
 
 Small research labs end up with a mixed fleet: a workstation or two under WSL2, an NVIDIA Jetson,
 a Mac Studio, a laptop with a good GPU, and now and then a rented cloud GPU. Several people and a
@@ -35,7 +35,7 @@ for it, and is it worth renting another one.
   a person with the `purser` role. A reaper ends idle yachts, and a hard time limit set on the
   cloud side ends them even if labtender is down.
 
-![The purser page: a charter over the pre-approval limits, the budget, and the history](docs/src/_static/purser.png)
+![The purser page: a charter over the pre-approval limits, the budget, and the history](https://raw.githubusercontent.com/lhzn-io/labtender/main/docs/src/_static/purser.png)
 
 ## Try it in a minute
 
