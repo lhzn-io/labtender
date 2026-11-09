@@ -7,7 +7,7 @@ import time
 from .db import Store
 from .ledger import Ledger
 
-ACTIVE_CHARTER = ("approved", "launching", "live", "landing", "adrift")
+ACTIVE_CHARTER = ("approved", "waiting", "launching", "live", "landing", "adrift")
 
 HELP = {
     "labtender_host_up": ("gauge", "1 when the host answered within three poll intervals"),

@@ -75,6 +75,7 @@ missing role or a forced release by an agent, 404 for an unknown host, 409 for a
 | `POST /api/charters/{id}/end` | Withdraw a charter, or land and destroy its yacht now: body `reason` (the requester, or a purser). |
 | `GET /api/budgets` | Per project: limits, reserved spend per window, what is left, actual spend this month. |
 | `PUT /api/budgets/{project}` | Change limits (purser): any of `monthly_usd`, `per_charter_usd`, `daily_usd`, `weekly_usd`, `pre_max_hours`, `pre_idle_min`. |
+| `DELETE /api/budgets/{project}` | Delete a project's budget (purser). 409 while a profile charges the project or one of its charters is waiting or active. Returns `project` and `listed` (whether it stays listed, at the default limits, for its charters this month). |
 | `GET /api/prices` | Per watched GPU: providers with their cheapest region and price, whether they are launchable, and a 30-day trend; plus `run_rate` (`rate_usd_h`, `yachts`, `month_spent_usd`, `month_worst_case_usd`) and `sampled_at`. |
 | `POST /api/prices/refresh` | Quote every watched GPU now (operator); 429 if the last sample is under 10 minutes old. |
 

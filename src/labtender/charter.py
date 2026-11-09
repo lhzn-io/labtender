@@ -4,6 +4,7 @@ A charter moves through:
 
     requested -> approved -> launching -> live -> landing -> destroyed
     requested -> rejected | withdrawn         launch fails -> failed
+    launch fails for lack of capacity -> waiting -> launching (again, until the retry limit)
     destroy fails -> adrift (retried every minute) -> destroyed
 
 * **Price.** Every charter is priced at its worst case, rate x ``max_hours``. That amount is
@@ -21,6 +22,11 @@ A charter moves through:
 * **Lost.** A yacht its provider reports gone or stopped (a prepaid balance ran out) is torn
   down without landing and billed only until then. Launches are refused when a provider's
   prepaid balance cannot carry them, and profiles can copy results off while a yacht runs.
+* **Waiting for capacity.** A profile with ``launch_retry_min`` keeps an approved charter whose
+  launch failed for lack of capacity: its machine is destroyed, it waits in ``waiting`` (still
+  approved, its worst case still reserved, billing nothing) and is launched again every
+  ``launch_retry_every_min`` until ``launch_retry_min`` after the first such failure. Each try
+  is re-quoted like any launch, so a price rise still goes back to a purser.
 * **Adrift.** A failed destroy is retried every minute and shown loudly. A daily sweep destroys
   any machine carrying this service's name prefix that has no live charter.
 
@@ -46,7 +52,7 @@ from .ledger import TIERS, Ledger, LedgerError
 
 log = logging.getLogger(__name__)
 
-ACTIVE = ("approved", "launching", "live", "landing", "adrift")
+ACTIVE = ("approved", "waiting", "launching", "live", "landing", "adrift")
 ENDED = ("destroyed", "failed", "rejected", "withdrawn")
 DEFAULT_LIMITS = {
     "monthly_usd": 100.0,
@@ -68,6 +74,8 @@ LAND_TRIES = 3
 LAND_MARGIN_S = 600  # no landing retry this close to the provider-side time limit
 DESTROY_LEAD_S = 300  # time limit: teardown starts this long (plus landing) before max_hours
 MAX_STEP_MIN = 180  # longest a profile's set-up, sync or landing may be given, in minutes
+MAX_RETRY_MIN = 24 * 60  # longest a charter may wait for capacity, in minutes
+MIN_RETRY_EVERY_MIN = 2  # each try that fails may bill a little, so not more often than this
 PRICE_TOLERANCE = 0.02  # a re-quote may rise this much (plus half a cent) without asking again
 PURSER_ACTIONS = (
     "charter.request",
@@ -77,6 +85,8 @@ PURSER_ACTIONS = (
     "charter.requote",
     "charter.price-rose",
     "budget.set",
+    "budget.delete",
+    "charter.waiting",
     "provider.balance-low",
 )
 STEP_S = 15
@@ -182,6 +192,10 @@ def check_profile(p: dict) -> dict:
     # A file the work writes on the yacht when it is over (its content, if any, an exit status).
     # labtender lands the charter as soon as it appears, so the idle limit is only a backstop.
     p.setdefault("done_file", "")
+    # A launch that fails for lack of capacity is tried again every launch_retry_every_min
+    # until launch_retry_min after the first such failure; 0 (the default) gives up at once.
+    p.setdefault("launch_retry_min", 0.0)
+    p.setdefault("launch_retry_every_min", 10.0)
     # Run folders to follow on the yacht while it is live, as a table or a list of tables.
     w = p.get("watch", [])
     p["watch"] = [w] if isinstance(w, dict) else list(w)
@@ -194,6 +208,15 @@ def check_profile(p: dict) -> dict:
             raise CharterError(f"profile {p['name']}: {key} must be between 1 and {MAX_STEP_MIN}")
     if not 1 <= float(p["sync_every_min"]) <= 24 * 60:
         raise CharterError(f"profile {p['name']}: sync_every_min must be between 1 and 1440")
+    if not 0 <= float(p["launch_retry_min"]) <= MAX_RETRY_MIN:
+        raise CharterError(
+            f"profile {p['name']}: launch_retry_min must be between 0 and {MAX_RETRY_MIN}"
+        )
+    if not MIN_RETRY_EVERY_MIN <= float(p["launch_retry_every_min"]) <= MAX_STEP_MIN:
+        raise CharterError(
+            f"profile {p['name']}: launch_retry_every_min must be between"
+            f" {MIN_RETRY_EVERY_MIN} and {MAX_STEP_MIN}"
+        )
     if p["tier"] not in TIERS:
         raise CharterError(f"profile {p['name']}: tier must be one of {', '.join(TIERS)}")
     if p["accelerators"] and not ACCEL.match(p["accelerators"]):
@@ -244,6 +267,11 @@ def summarize_error(text: str) -> str:
     return first if len(first) <= 160 else first[:157] + "..."
 
 
+def is_capacity_error(text: str) -> bool:
+    """Whether a launch failed only because the provider had no machine to give."""
+    return summarize_error(text).startswith("no capacity")
+
+
 def gpu_count(accelerators: str) -> int:
     m = ACCEL.match(accelerators or "")
     if not m:
@@ -283,6 +311,9 @@ class Charters:
                 ("charter", "lost_at", "REAL"),  # when the provider was seen to have ended it
                 ("charter", "land_tries", "INTEGER NOT NULL DEFAULT 0"),
                 ("charter", "quoted_at", "REAL"),  # when its rate was last quoted
+                ("charter", "waiting_since", "REAL"),  # first launch that found no capacity
+                ("charter", "launch_tries", "INTEGER NOT NULL DEFAULT 0"),
+                ("charter", "spent_usd", "REAL NOT NULL DEFAULT 0"),  # billed by earlier tries
             ),
         )
         self.plugins: dict[str, yachts.Plugin] = dict(plugins or {})
@@ -353,6 +384,10 @@ class Charters:
         c["cost_so_far"] = self.cost(c)
         c["worst_usd"] = round(c["rate_usd_h"] * c["max_hours"], 2)
         c["ends_by"] = c["launch_at"] + c["max_hours"] * 3600 if c["launch_at"] else None
+        c["retry_at"] = c["retry_until"] = None
+        if c["state"] == "waiting" and c["spec"]:
+            c["retry_at"] = (c["tried_at"] or 0) + retry_every_s(c["spec"])
+            c["retry_until"] = (c["waiting_since"] or 0) + retry_window_s(c["spec"])
         return c
 
     def _set(self, charter_id: int, **cols) -> None:
@@ -362,21 +397,24 @@ class Charters:
     # ---------------------------------------------------- money
 
     def cost(self, c: dict, now: float | None = None) -> float:
-        """What the yacht has cost: final once ended, else rate x time since launch."""
+        """What the yacht has cost: final once ended, else rate x time since launch, plus what
+        earlier launches that found no capacity billed."""
         if c.get("cost_usd") is not None:
             return c["cost_usd"]
+        spent = c.get("spent_usd") or 0.0
         if not c.get("launch_at"):
-            return 0.0
+            return round(spent, 4)
         # A yacht its provider ended (stopped, out of balance) bills no further.
         end = c.get("lost_at") or c.get("ended_at") or (now or self.now())
-        return round(c["rate_usd_h"] * max(0.0, end - c["launch_at"]) / 3600, 4)
+        return round(spent + c["rate_usd_h"] * max(0.0, end - c["launch_at"]) / 3600, 4)
 
     def exposure(self, c: dict, now: float) -> float:
         """Reserved spend: the worst case while active, the actual cost once ended."""
         if c["state"] in ("requested", "rejected", "withdrawn"):
             return 0.0
         if c["state"] in ACTIVE:
-            return max(self.cost(c, now), c["rate_usd_h"] * c["max_hours"])
+            worst = (c.get("spent_usd") or 0.0) + c["rate_usd_h"] * c["max_hours"]
+            return max(self.cost(c, now), worst)
         return self.cost(c, now)
 
     def balance(self, plugin_name: str, provider: str, fresh: bool = False) -> dict | None:
@@ -516,10 +554,46 @@ class Charters:
         }
 
     def projects(self) -> list[str]:
+        """Projects with limits set, a profile charging them, or charters this month."""
         names = {r["project"] for r in self.conn.execute("SELECT project FROM budget")}
-        names |= {r["project"] for r in self.conn.execute("SELECT DISTINCT project FROM charter")}
+        names |= {
+            r["project"]
+            for r in self.conn.execute(
+                "SELECT DISTINCT project FROM charter WHERE created_at >= ? OR state IN ("
+                + ",".join("?" * (len(ACTIVE) + 1))
+                + ")",
+                (self._month_start(self.now()), "requested", *ACTIVE),
+            )
+        }
         names |= {p["project"] for p in self.profiles().values()}
         return sorted(names)
+
+    def delete_limits(self, project: str, actor: str) -> dict:
+        """Delete a project's budget. Refused while a charter of the project is waiting or
+        active, or a profile charges it: its charters would then fall back to the default
+        limits, which may be looser than the ones set."""
+        with self.store.tx():
+            busy = [
+                c["id"] for c in self.charters(("requested", *ACTIVE)) if c["project"] == project
+            ]
+            if busy:
+                raise CharterError(
+                    f"project {project} has charters waiting or active"
+                    f" ({', '.join(map(str, busy))})"
+                )
+            named = sorted(n for n, p in self.profiles().items() if p["project"] == project)
+            if named:
+                raise CharterError(
+                    f"profile{'s' if len(named) > 1 else ''} {', '.join(named)} charge"
+                    f"{'' if len(named) > 1 else 's'} project {project}; change or remove"
+                    f" {'them' if len(named) > 1 else 'it'} first"
+                )
+            if project not in self.projects():
+                raise CharterError(f"no budget for project {project}")
+            old = self.limits(project)
+            self.conn.execute("DELETE FROM budget WHERE project = ?", (project,))
+            self.store.audit(actor, "budget.delete", project, **old)
+        return {"project": project, "listed": project in self.projects()}
 
     def precheck(
         self, project: str, rate: float, max_hours: float, idle_min: float
@@ -724,7 +798,7 @@ class Charters:
             if c["requester"] != actor and not is_purser(kind, roles):
                 raise CharterError(f"charter {charter_id} belongs to {c['requester']}")
             reason = reason or f"ended by {actor}"
-            if c["state"] in ("requested", "approved") and charter_id not in self._busy:
+            if c["state"] in ("requested", "approved", "waiting") and charter_id not in self._busy:
                 self._set(charter_id, state="withdrawn", ended_at=self.now(), end_reason=reason)
                 self.store.audit(actor, "charter.withdraw", f"charter/{charter_id}", reason=reason)
             else:
@@ -766,7 +840,7 @@ class Charters:
         for c in self.charters(ACTIVE):
             if c["id"] in self._busy:
                 continue
-            if c["state"] == "approved":
+            if c["state"] == "approved" or (c["state"] == "waiting" and now >= c["retry_at"]):
                 started.append(self._spawn(c["id"], self._launch(c)))
             elif c["state"] == "launching":
                 # Only after a restart mid-launch: the machine may exist, so tear it down.
@@ -834,8 +908,15 @@ class Charters:
         c = self.charter(cid)
         ref = f"{self.prefix}{cid}"
         with self.store.tx():
-            self._set(cid, state="launching", ref=ref, launch_at=self.now())
-            self.store.audit("labtender", "charter.launch", f"charter/{cid}", ref=ref)
+            self._set(
+                cid,
+                state="launching",
+                ref=ref,
+                launch_at=self.now(),
+                launch_tries=c["launch_tries"] + 1,
+            )
+            tries = c["launch_tries"] + 1
+            self.store.audit("labtender", "charter.launch", f"charter/{cid}", ref=ref, tries=tries)
         offer = yachts.Offer(**c["offer"])
         host = f"yacht-{cid}"
         try:
@@ -901,7 +982,12 @@ class Charters:
                 claims.append(claim["id"])
             with self.store.tx():
                 self._set(
-                    cid, state="live", live_at=self.now(), host=host, claims=json.dumps(claims)
+                    cid,
+                    state="live",
+                    live_at=self.now(),
+                    host=host,
+                    claims=json.dumps(claims),
+                    last_error=None,
                 )
                 self.store.audit(
                     "labtender", "charter.live", f"charter/{cid}", host=host, claims=claims
@@ -918,19 +1004,36 @@ class Charters:
                     f.write(f"\n== launch failed ({time.strftime('%H:%M:%S')})\n{full}\n")
             except OSError as le:
                 log.warning("charter %s: could not log the launch error: %s", cid, le)
+            # No capacity is worth another try, within the profile's retry limit; anything else
+            # (a set-up step, a balance, a bad image) would fail the same way again.
+            cur = self.charter(cid)
+            now = self.now()
+            capacity = is_capacity_error(full) and retry_window_s(spec) > 0
+            first = (cur["waiting_since"] or now) if capacity else cur["waiting_since"]
+            retry = (
+                capacity
+                and not cur["stop_reason"]
+                and now + retry_every_s(spec) <= first + retry_window_s(spec)
+            )
+            reason = f"launch failed: {summarize_error(full)}"
+            if cur["launch_tries"] > 1:
+                reason += f" ({cur['launch_tries']} tries over {(now - first) / 60:.0f} min)"
             with self.store.tx():
                 self._set(
                     cid,
                     last_error=full[:ERROR_KEEP],
-                    end_reason=f"launch failed: {summarize_error(full)}",
+                    end_reason=None if retry else reason,
+                    waiting_since=first,
                 )
                 self.store.audit(
                     "labtender",
                     "charter.launch-failed",
                     f"charter/{cid}",
                     error=summarize_error(full),
+                    tries=cur["launch_tries"],
+                    retry_at=now + retry_every_s(spec) if retry else None,
                 )
-            await self._destroy(self.charter(cid), failed=True)
+            await self._destroy(self.charter(cid), failed=True, retry=retry)
 
     def _keep_claims(self, c: dict) -> None:
         """Heartbeat the claims a live charter created: the charter itself keeps them alive.
@@ -1107,7 +1210,9 @@ class Charters:
                     return
         await self._destroy(self.charter(cid))
 
-    async def _destroy(self, c: dict, failed: bool = False) -> None:
+    async def _destroy(self, c: dict, failed: bool = False, retry: bool = False) -> None:
+        """Destroy a charter's machine and end it, or with ``retry`` (a launch that found no
+        capacity, inside its retry limit) put it back to wait for the next try."""
         cid = c["id"]
         plugin = self.plugin(c["plugin"])
         now = self.now()
@@ -1139,6 +1244,31 @@ class Charters:
                 )
         if c["host"] or self.store.host(f"yacht-{cid}"):
             self.store.remove_host(f"yacht-{cid}", actor="labtender", reason="charter ended")
+        if retry:
+            # Still approved and its worst case still reserved; this try's few seconds of
+            # billing carry over, and the meter starts again at the next launch.
+            with self.store.tx():
+                self._set(
+                    cid,
+                    state="waiting",
+                    ref=None,
+                    yacht=None,
+                    host=None,
+                    claims="[]",
+                    launch_at=None,
+                    spent_usd=self.cost(dict(c, ended_at=now, cost_usd=None), now),
+                    tried_at=now,
+                )
+                w = self.charter(cid)
+                self.store.audit(
+                    "labtender",
+                    "charter.waiting",
+                    f"charter/{cid}",
+                    retry_at=w["retry_at"],
+                    retry_until=w["retry_until"],
+                    spent_usd=w["spent_usd"],
+                )
+            return
         state = "failed" if failed else "destroyed"
         with self.store.tx():
             ended = dict(c, ended_at=now, cost_usd=None)
@@ -1235,7 +1365,7 @@ class Charters:
         rose = new > old * (1 + PRICE_TOLERANCE) + 0.005
         state, approval = c["state"], c["approval"]
         why: list[str] = []
-        if c["state"] == "approved" and rose:
+        if c["state"] in ("approved", "waiting") and rose:
             ok, why = self.precheck(c["project"], new, c["max_hours"], c["idle_min"])
             if c["approval"] != "pre-approved" or not ok:
                 state, approval = "requested", None
@@ -1265,7 +1395,7 @@ class Charters:
 
     async def requote(self, charter_id: int, actor: str, kind: str, roles: list[str]) -> dict:
         """Quote a waiting (or approved, not yet launching) charter again, for its machine."""
-        c = self._get(charter_id, ("requested", "approved"))
+        c = self._get(charter_id, ("requested", "approved", "waiting"))
         if c["requester"] != actor and not is_purser(kind, roles):
             raise CharterError(f"charter {charter_id} belongs to {c['requester']}")
         if charter_id in self._busy:
@@ -1294,7 +1424,7 @@ class Charters:
         offer = self._same_offer(offers, c["offer"])
         if offer is None:
             return True
-        return self._reprice(c, offer, "labtender", at_launch=True)["state"] == "approved"
+        return self._reprice(c, offer, "labtender", at_launch=True)["state"] != "requested"
 
     # ---------------------------------------------------- views
 
@@ -1338,6 +1468,15 @@ class Charters:
 
 def is_purser(kind: str, roles: list[str]) -> bool:
     return kind == "person" and "purser" in roles
+
+
+def retry_window_s(spec: dict) -> float:
+    """How long after its first capacity failure a charter keeps trying to launch."""
+    return float(spec.get("launch_retry_min", 0.0)) * 60
+
+
+def retry_every_s(spec: dict) -> float:
+    return float(spec.get("launch_retry_every_min", 10.0)) * 60
 
 
 def land_lead(c: dict) -> float:

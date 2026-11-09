@@ -871,6 +871,10 @@ def create_app(
             charters.set_limits, project, who["identity"], **body.model_dump(exclude_none=True)
         )
 
+    @app.delete("/api/budgets/{project}")
+    async def delete_budget(project: str, who: dict = Depends(purser)) -> dict:
+        return ledger_call(charters.delete_limits, project, who["identity"])
+
     # ------------------------------------------------------------ prices
 
     @app.get("/api/prices")

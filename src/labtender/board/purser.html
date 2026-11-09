@@ -128,7 +128,7 @@ function budgetsCard(v) {
       return `<td class="num">${used != null ? `${money(used)} of ` : ""}${v2}</td>`;
     }).join("");
     return `<tr><td>${esc(u.project)}<div class="sub">${money(u.month_actual_usd)} spent this month</div></td>${cells}
-      <td><button data-act="edit" data-project="${esc(u.project)}">Edit</button></td></tr>`;
+      <td><button data-act="edit" data-project="${esc(u.project)}">Edit</button> <button class="danger" data-act="delete" data-project="${esc(u.project)}">Delete</button></td></tr>`;
   }).join("");
   const head = LIMITS.map(([, label]) => `<th class="num">${label}</th>`).join("");
   return `<section class="card wide"><h2>Budgets</h2>
@@ -155,6 +155,8 @@ function detail(e) {
       return `${money(d.old_rate_usd_h, 3)} to ${money(d.new_rate_usd_h, 3)}/h${d.at_launch ? " at launch" : ""}${e.action === "charter.price-rose" ? ", back to a purser" : ""}`;
     case "charter.reject": case "charter.withdraw": return esc(d.reason || "");
     case "budget.set": return Object.entries(d).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(", ");
+    case "budget.delete": return `deleted (was monthly cap ${money(d.monthly_usd)})`;
+    case "charter.waiting": return `no capacity, next try ${esc(when(d.retry_at))}, trying until ${esc(when(d.retry_until))}`;
     case "provider.balance-low": return `balance ${money(d.balance_usd)} under ${money(d.committed_usd)}`;
     default: return esc(d.approval || "");
   }
@@ -195,6 +197,10 @@ $("#cards").addEventListener("click", async (ev) => {
     await call("POST", `/api/charters/${id}/requote`, null, "purser or the requester's");
   } else if (act === "edit") {
     editing = b.dataset.project; load();
+  } else if (act === "delete") {
+    const p = b.dataset.project;
+    if (!confirm(`Delete the budget of ${p}? Refused while a profile charges it or a charter of it is waiting or active.`)) return;
+    await call("DELETE", `/api/budgets/${encodeURIComponent(p)}`, null);
   } else if (act === "cancel") {
     editing = null; load();
   } else if (act === "save") {

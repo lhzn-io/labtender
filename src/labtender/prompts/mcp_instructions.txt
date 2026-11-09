@@ -30,3 +30,6 @@ Cloud GPUs (yachts) cost real money, by the hour:
    nobody holds a claim on it or its GPUs sit idle for its idle limit, at its time limit, or at
    the budget cap, so copy results off it before you finish.
 11. Call charter_end as soon as you are done; every idle minute is billed.
+12. A charter in "waiting" found no capacity at launch and is tried again on its own until its
+   profile's retry limit (charter_status shows the next try and the limit). Do not request
+   another charter for the same work while it waits; end it if the work no longer needs it.

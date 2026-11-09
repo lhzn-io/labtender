@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from labtender.charter import CharterError, Charters
+from labtender.charter import CharterError, Charters, check_profile
 from labtender.db import Store
 from labtender.ledger import Ledger
 from labtender.server import create_app, token_hash
@@ -282,6 +282,129 @@ def test_sweep_destroys_only_our_orphans(lab):
     assert gone == [f"{ch.prefix}999"]
     assert "someone-elses-cluster" in fake.machines
     assert ch.charter(c["id"])["ref"] in fake.machines
+
+
+PATIENT = "launch_retry_min = 30\nlaunch_retry_every_min = 10\n"
+
+
+def test_no_capacity_waits_and_tries_again_until_it_launches(lab, tmp_path):
+    ch, store, ledger, clock, fake = lab
+    profile(tmp_path, "patient", extra=PATIENT)
+    fake.no_capacity = 2
+    c = ask(ch, "patient")
+    reserved = ch.usage("default")["reserved"]["monthly_usd"]
+    step(ch)
+    c = ch.charter(c["id"])
+    assert c["state"] == "waiting" and c["launch_tries"] == 1 and c["end_reason"] is None
+    assert c["launch_at"] is None and c["ref"] is None and fake.machines == {}
+    assert c["retry_at"] == clock.t + 600 and c["retry_until"] == clock.t + 1800
+    # Still approved: its worst case stays reserved, and nothing bills while it waits.
+    assert ch.usage("default")["reserved"]["monthly_usd"] == reserved
+    clock.advance(5)
+    step(ch)
+    assert ch.charter(c["id"])["launch_tries"] == 1  # not before retry_every
+    clock.advance(5)
+    step(ch)
+    assert ch.charter(c["id"])["state"] == "waiting" and ch.charter(c["id"])["launch_tries"] == 2
+    clock.advance(10)
+    step(ch)
+    c = ch.charter(c["id"])
+    assert c["state"] == "live" and c["launch_tries"] == 3 and c["last_error"] is None
+    actions = [e["action"] for e in store.events(50)]
+    assert actions.count("charter.waiting") == 2 and "charter.live" in actions
+
+
+def test_no_capacity_gives_up_at_the_retry_limit(lab, tmp_path):
+    ch, store, ledger, clock, fake = lab
+    profile(tmp_path, "patient", extra=PATIENT)
+    fake.no_capacity = 99
+    c = ask(ch, "patient")
+    for _ in range(6):
+        step(ch)
+        clock.advance(10)
+    c = ch.charter(c["id"])
+    assert c["state"] == "failed" and c["launch_tries"] == 4  # at 0, 10, 20 and 30 min
+    assert c["end_reason"] == "launch failed: no capacity in here (4 tries over 30 min)"
+    assert c["cost_usd"] == 0 and fake.machines == {}
+
+
+def test_only_capacity_failures_are_tried_again(lab, tmp_path):
+    ch, store, ledger, clock, fake = lab
+    profile(tmp_path, "patient", extra=PATIENT)
+    fake.fail_create = True
+    c = ask(ch, "patient")
+    step(ch)
+    assert ch.charter(c["id"])["state"] == "failed"
+
+
+def test_without_a_retry_limit_no_capacity_fails_at_once(lab):
+    ch, store, ledger, clock, fake = lab
+    fake.no_capacity = 1
+    c = ask(ch)
+    step(ch)
+    c = ch.charter(c["id"])
+    assert c["state"] == "failed" and c["end_reason"] == "launch failed: no capacity in here"
+
+
+def test_a_waiting_charter_can_be_withdrawn_or_sent_back_by_a_price_rise(lab, tmp_path):
+    ch, store, ledger, clock, fake = lab
+    profile(tmp_path, "patient", extra=PATIENT)
+    fake.no_capacity = 5
+    a, b = ask(ch, "patient"), ask(ch, "patient", who=PURSER, approve=True)
+    step(ch)
+    assert ch.end(a["id"], *AGENT)["state"] == "withdrawn"
+    fake.price_factor = 1.5
+    clock.advance(10)
+    step(ch)
+    b = ch.charter(b["id"])
+    assert b["state"] == "requested" and b["rate_usd_h"] == 0.75
+
+
+def test_a_retry_limit_is_bounded(tmp_path):
+    with pytest.raises(CharterError, match="launch_retry_every_min"):
+        check_profile({"name": "x", "plugin": "fake", "launch_retry_every_min": 1})
+    with pytest.raises(CharterError, match="launch_retry_min"):
+        check_profile({"name": "x", "plugin": "fake", "launch_retry_min": 2000})
+
+
+def test_a_budget_is_deleted_only_when_nothing_charges_it(lab, tmp_path):
+    ch, store, ledger, clock, fake = lab
+    ch.set_limits("old", "dana", monthly_usd=10)
+    ch.set_limits("default", "dana", monthly_usd=50)
+    assert "old" in ch.projects()
+    with pytest.raises(CharterError, match="profiles big, small charge project default"):
+        ch.delete_limits("default", "dana")
+    profile(tmp_path, "olden", extra='project = "old"\n')
+    c = ask(ch, "olden", who=PURSER)
+    with pytest.raises(CharterError, match=f"waiting or active \\({c['id']}\\)"):
+        ch.delete_limits("old", "dana")
+    ch.end(c["id"], *PURSER)
+    (tmp_path / "charters" / "olden.toml").unlink()
+    # Its withdrawn charter is from this month, so it stays listed at the default limits.
+    assert ch.delete_limits("old", "dana") == {"project": "old", "listed": True}
+    assert ch.limits("old")["monthly_usd"] == 100.0
+    clock.advance(60 * 24 * 40)
+    assert "old" not in ch.projects()
+    with pytest.raises(CharterError, match="no budget"):
+        ch.delete_limits("old", "dana")
+    assert store.events(5)[0]["action"] == "budget.delete"
+
+
+def test_http_budget_delete_needs_a_purser(tmp_path):
+    store = Store(tmp_path / "t.sqlite")
+    ledger = Ledger(store)
+    ch = Charters(store, ledger, tmp_path, plugins={"fake": FakePlugin()})
+    ch.set_limits("old", "dana", monthly_usd=10)
+    store.add_token(token_hash("person"), "dana", "person", actor="a")
+    app = create_app(store=store, home=tmp_path, collect=False, ledger=ledger, charters=ch)
+    person = {"Authorization": "Bearer person"}
+    with TestClient(app) as http:
+        assert http.delete("/api/budgets/old", headers=person).status_code == 403
+        store.grant_role("dana", "purser", actor="a")
+        r = http.delete("/api/budgets/old", headers=person)
+        assert r.status_code == 200 and r.json() == {"project": "old", "listed": False}
+        assert http.delete("/api/budgets/old", headers=person).status_code == 409
+        assert [u["project"] for u in http.get("/api/budgets").json()] == []
 
 
 def test_purser_is_for_people_only(tmp_path):

@@ -339,6 +339,11 @@ def _charter_line(c: dict) -> str:
         extra.append(f"{_money(c['cost_so_far'])} so far")
         if c.get("ends_by"):
             extra.append(f"ends by {_clock(c['ends_by'])}")
+    elif c["state"] == "waiting":
+        extra.append(
+            f"no capacity after {c['launch_tries']} tries; next try {_clock(c['retry_at'])},"
+            f" until {_clock(c['retry_until'])}; {_money(c['cost_so_far'])} so far"
+        )
     elif c.get("cost_usd") is not None:
         extra.append(f"cost {_money(c['cost_usd'])}")
     if c.get("host"):
@@ -461,6 +466,13 @@ def cmd_budget_set(a) -> None:
     )
     for line in _usage_lines(u):
         print(line)
+
+
+def cmd_budget_rm(a) -> None:
+    r = Hub().delete_budget(a.project)
+    print(f"deleted the budget of {r['project']}")
+    if r["listed"]:
+        print("  it stays listed, at the default limits, while it has charters this month")
 
 
 def cmd_backup(a) -> None:
@@ -812,6 +824,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--pre-max-hours", type=float, help="longest pre-approved time limit")
     s.add_argument("--pre-idle-min", type=float, help="longest pre-approved idle limit")
     s.set_defaults(fn=cmd_budget_set)
+    s = bud.add_parser(
+        "rm", help="delete a project's budget (purser; refused while a profile charges it)"
+    )
+    s.add_argument("project")
+    s.set_defaults(fn=cmd_budget_rm)
 
     s = sub.add_parser("backup", help="copy the state database now (it is also backed up daily)")
     s.add_argument("--to", help="file to write (default: $LABTENDER_HOME/backups/...)")

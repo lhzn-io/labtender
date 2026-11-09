@@ -129,6 +129,7 @@ function charterHtml(c, now) {
   ].filter(Boolean).join(" · ");
   const why = c.state === "requested" ? `<div class="wait">waiting for a purser: labtender charter approve ${c.id}</div>
     <button data-act="approve" data-id="${c.id}">Approve</button><button data-act="reject" data-id="${c.id}">Reject</button>` : "";
+  const waiting = c.state === "waiting" ? `<div class="wait">waiting for capacity after ${c.launch_tries} ${c.launch_tries === 1 ? "try" : "tries"}: next try ${clock(c.retry_at)}, trying until ${clock(c.retry_until)} · ${money(c.cost_so_far)} so far</div>` : "";
   const adrift = c.state === "adrift" ? `<div class="adrift">destroy failed, retrying: ${esc(summarize(c.last_error))}</div>` : "";
   const ended = !live && c.end_reason ? ` · ${esc(summarize(c.end_reason))}` : "";
   const err = cleanError(c.last_error);
@@ -141,7 +142,7 @@ function charterHtml(c, now) {
   const log = c.ref ? `<details data-key="${esc(lkey)}" data-log="${c.id}"${openDetails.has(lkey) ? " open" : ""}><summary class="sub">log</summary><pre class="detail" data-log-for="${c.id}">${esc(logs[c.id] ?? "loading...")}</pre></details>` : "";
   return `<div class="charter">
     <div class="top"><span><b>charter ${c.id}</b> ${esc(c.profile)} for ${esc(c.requester)}${c.approval ? ` (${esc(c.approval)})` : ""}</span><span class="badge s-${esc(c.state)}">${esc(c.state)}</span></div>
-    <div class="facts">${facts}${ended}</div>${c.note ? `<div class="facts">${esc(c.note)}</div>` : ""}${step}${adrift}${why}${detail}${log}
+    <div class="facts">${facts}${ended}</div>${c.note ? `<div class="facts">${esc(c.note)}</div>` : ""}${step}${waiting}${adrift}${why}${detail}${log}
   </div>`;
 }
 // Provider errors arrive with terminal colour codes and pages of retry detail; the board shows
@@ -159,7 +160,7 @@ function budgetHtml(u) {
   const r = u.reserved, l = u.limits;
   return `<div class="budget">${esc(u.project)}: month ${money(r.monthly_usd)} of ${money(l.monthly_usd)} reserved (${money(u.month_actual_usd)} spent) · pre-approved today ${money(r.daily_usd)} of ${money(l.daily_usd)}, this week ${money(r.weekly_usd)} of ${money(l.weekly_usd)}, up to ${money(l.per_charter_usd)} each</div>`;
 }
-const ACTIVE_CHARTER = ["requested", "approved", "launching", "live", "landing", "adrift"];
+const ACTIVE_CHARTER = ["requested", "approved", "waiting", "launching", "live", "landing", "adrift"];
 function yachtsHtml(s) {
   const charters = s.charters || [];
   if (!charters.length) return "";

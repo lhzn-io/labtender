@@ -2,7 +2,8 @@
 
 Its "yachts" are the labtender service's own machine, probed locally, and its prices come from
 the profile (``fake_rate_usd_h``, default 0.50). Nothing is created and nothing is billed.
-Setting ``fail_create`` or ``fail_destroy`` on an instance makes those calls fail, to rehearse
+Setting ``fail_create`` or ``fail_destroy`` on an instance makes those calls fail, and
+``no_capacity`` makes create fail the way a provider with no machine to give does, to rehearse
 the failure paths.
 """
 
@@ -17,6 +18,7 @@ class FakePlugin(Plugin):
     def __init__(self) -> None:
         self.machines: dict[str, dict] = {}
         self.fail_create = False
+        self.no_capacity = 0  # how many creates to refuse for lack of capacity
         self.fail_destroy = False
         self.balance_usd: float | None = None
         self.price_factor = 1.0  # moves every quote, to rehearse prices changing
@@ -30,6 +32,9 @@ class FakePlugin(Plugin):
         ]
 
     def create(self, ref: str, spec: dict, offer: Offer, max_hours: float) -> Yacht:
+        if self.no_capacity:
+            self.no_capacity -= 1
+            raise PluginError(f"Failed to acquire resources in {offer.region} for {ref}")
         if self.fail_create:
             # A real provider can fail after the machine exists, so record it first.
             self.machines[ref] = {"status": "up", "max_hours": max_hours}

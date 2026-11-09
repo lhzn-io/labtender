@@ -126,3 +126,6 @@ class Hub:
 
     def set_budget(self, project: str, **limits) -> dict:
         return self._call("PUT", f"/api/budgets/{urllib.parse.quote(project)}", limits)
+
+    def delete_budget(self, project: str) -> dict:
+        return self._call("DELETE", f"/api/budgets/{urllib.parse.quote(project)}")

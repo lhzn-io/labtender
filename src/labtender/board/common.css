@@ -134,7 +134,7 @@ input { font: 11px/1.3 var(--mono); padding: 2px 5px; border: 1px solid var(--li
 .badge.roam { color: var(--muted); vertical-align: middle; }
 .s-running { color: var(--ok); } .s-stale { color: var(--warn); }
 .s-exited { color: var(--bad); } .s-done, .s-gone { color: var(--muted); }
-.s-live, .s-approved, .s-launching { color: var(--ok); } .s-requested, .s-landing { color: var(--warn); }
+.s-live, .s-approved, .s-launching { color: var(--ok); } .s-requested, .s-landing, .s-waiting { color: var(--warn); }
 .s-adrift, .s-failed { color: var(--bad); } .s-destroyed, .s-rejected, .s-withdrawn { color: var(--muted); }
 
 /* Tooltips: square, with the accent bar on the left. */

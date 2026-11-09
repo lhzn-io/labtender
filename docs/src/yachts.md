@@ -38,6 +38,9 @@ stateDiagram-v2
     approved --> launching: create
     launching --> live: ready, bootstrapped, claims held
     launching --> failed: create failed (destroyed anyway)
+    launching --> waiting: no capacity, inside launch_retry_min (destroyed anyway)
+    waiting --> launching: every launch_retry_every_min
+    waiting --> withdrawn: the requester ends it
     live --> landing: idle, time limit, budget, or ended
     landing --> destroyed: results back, destroyed
     landing --> adrift: destroy failed
@@ -122,6 +125,8 @@ sync = ["rsync -a {ssh}:eval/results/ ~/work/eval/results/"]  # copies taken whi
 sync_every_min = 10
 watch = { parser = "run-wrapper", glob = "~/eval/runs/*/" }  # or a list of these tables
 done_file = "~/eval/done"    # written on the yacht when the work is over; lands it at once
+launch_retry_min = 120       # keep trying a launch that found no capacity, for up to 2 h
+launch_retry_every_min = 10  # how often (2 to 180 min)
 ```
 
 A request can shorten the time and idle limits (`--hours`, `--idle-min`), which lowers the worst
@@ -131,6 +136,19 @@ case.
 host: labtender adds the watches when the yacht joins (before set-up, so a run that set-up starts
 is seen at once) and they leave with it. Its runs then show on the board with progress and an
 estimated finish, and `labtender bind` on a yacht claim settles once the run's folder is seen.
+
+**Waiting for capacity.** GPU clouds often have no machine of a type to give for a while. With
+`launch_retry_min` set (the default, 0, gives up at once), a launch that fails only for lack of
+capacity does not end the charter: its machine is destroyed as after any failed launch, and the
+charter waits in `waiting` and is launched again every `launch_retry_every_min`, until
+`launch_retry_min` after the first such failure. Then it fails, with the number of tries in its
+end reason. While it waits it stays approved, so a purser approves it once; its worst case stays
+reserved against the budgets; and nothing bills, though each failed try may bill the few seconds
+its machine existed, which carry over into the charter's cost. Each try is quoted again first
+(see *Fresh quotes* below), so a price rise still goes back to a purser. Other launch failures (a
+set-up step, a provider balance, a bad image) fail at once. The board and `labtender charter ls`
+show the tries so far, the next try and the time it gives up; `charter.waiting` is audited after
+each failed try. The requester or a purser can end a waiting charter at any time.
 
 `sync` commands run every `sync_every_min` while the yacht is live (best effort, with
 `sync_timeout_min`, failures audited as `charter.sync-failed`), so a yacht that is lost early
@@ -175,12 +193,18 @@ labtender charter requote 8                  # a fresh quote before deciding
 labtender charter reject 8 --reason "use gpu-box tonight instead"
 labtender budget ls
 labtender budget set default --monthly 100 --per-charter 5 --daily 15 --weekly 50
+labtender budget rm old-project              # delete a budget nothing charges any more
 ```
+
+Deleting a budget is refused while a profile charges the project or one of its charters is
+waiting or active, since its charters would otherwise fall back to the default limits, which may
+be looser than the ones set. A project with charters this month stays listed, at the default
+limits, until the month is over.
 
 The board's **purser page** (`/purser`) shows the same in one place: each waiting charter with
 its note, worst case, limits, how old its quote is, why it was not pre-approved and what its GPU
 costs elsewhere right now (from the Prices sampler), with Approve, Re-quote and Reject; every
-project's budget, editable in place; provider balances; and the history of requests, approvals,
+project's budget, editable in place or deleted once nothing charges it; provider balances; and the history of requests, approvals,
 re-quotes and budget changes. Actions ask for a purser token once and keep it for that tab only.
 
 ```{figure} _static/purser.png
