@@ -44,7 +44,7 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-PAGES = ("home.html", "compact.html", "prices.html", "purser.html")
+PAGES = ("home.html", "compact.html", "prices.html", "purser.html", "profiles.html")
 INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.S)
 API_CSP = "default-src 'none'; frame-ancestors 'none'"
 _csp_cache: dict[tuple, str] = {}
@@ -203,6 +203,11 @@ class CardIn(BaseModel):
     name: str | None = None
     hold: str | None = None
     bandwidth_gbs: float | None = None
+
+
+class ProfileIn(BaseModel):
+    toml: str = Field(max_length=200_000)
+    base_sha256: str | None = None  # the version being edited; None creates a new profile
 
 
 class BudgetIn(BaseModel):
@@ -483,6 +488,12 @@ def create_app(
             raise HTTPException(403, "this needs a person with the purser role")
         return who
 
+    # Profile commands run on this machine, so their source and changes are for people only.
+    async def profile_admin(who: dict = Depends(actor)) -> dict:
+        if who["kind"] != "person" or "admin" not in who["roles"]:
+            raise HTTPException(403, "this needs a person with the admin role")
+        return who
+
     def ledger_call(fn, *args, **kwargs) -> dict:
         try:
             return fn(*args, **kwargs)
@@ -548,6 +559,10 @@ def create_app(
     @app.api_route("/purser", methods=["GET", "HEAD"], response_class=HTMLResponse)
     async def purser_page() -> str:
         return resources.files("labtender").joinpath("board/purser.html").read_text("utf-8")
+
+    @app.api_route("/profiles", methods=["GET", "HEAD"], response_class=HTMLResponse)
+    async def profiles_page() -> str:
+        return page("profiles.html")
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> PlainTextResponse:
@@ -754,6 +769,26 @@ def create_app(
             }
             for p in charters.profiles().values()
         ]
+
+    @app.get("/api/charters/profile-files")
+    async def charter_profile_files(who: dict = Depends(profile_admin)) -> list[dict]:
+        return charters.profile_files()
+
+    @app.get("/api/charters/profiles/{name}/source")
+    async def charter_profile_source(name: str, who: dict = Depends(profile_admin)) -> dict:
+        return ledger_call(charters.profile_source, name)
+
+    @app.put("/api/charters/profiles/{name}")
+    async def charter_profile_save(
+        name: str, body: ProfileIn, who: dict = Depends(profile_admin)
+    ) -> dict:
+        return ledger_call(
+            charters.save_profile, name, body.toml, who["identity"], body.base_sha256
+        )
+
+    @app.delete("/api/charters/profiles/{name}")
+    async def charter_profile_delete(name: str, who: dict = Depends(profile_admin)) -> dict:
+        return ledger_call(charters.delete_profile, name, who["identity"])
 
     @app.get("/api/charters/quote")
     async def charter_quote(

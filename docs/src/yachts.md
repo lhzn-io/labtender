@@ -97,7 +97,8 @@ people's, are never touched.
 
 ## Charter profiles
 
-A profile is a TOML file in `$LABTENDER_HOME/charters/`, written by whoever runs the service:
+A profile is a TOML file in `$LABTENDER_HOME/charters/`, written by whoever runs the service,
+or on the board's **profiles page** (`/profiles`):
 
 ```toml
 name = "l4-any"
@@ -128,6 +129,20 @@ done_file = "~/eval/done"    # written on the yacht when the work is over; lands
 launch_retry_min = 120       # keep trying a launch that found no capacity, for up to 2 h
 launch_retry_every_min = 10  # how often (2 to 180 min)
 ```
+
+**The profiles page** lists every profile file, including one that no longer loads (with the
+reason, so it can be fixed in place), and which waiting or active charters came from each. It
+opens a profile's TOML in an editor, creates new ones from a template, and deletes them. Profiles
+hold commands that run on the service's machine, so reading their source and changing them needs
+a person with the admin role; agents never can, and the open listing
+(`GET /api/charters/profiles`) leaves the commands out. Before a profile is saved it is checked as
+labtender loads it (TOML, name, limits, plugin), so a typo never stops the other profiles from
+loading. A save names the version it was edited from and is refused if the file changed meanwhile.
+Each earlier version, and each deleted profile, is kept in `charters/.history` (the newest 20 per
+profile). A charter keeps its profile as it was when requested, so a change or deletion applies
+to new requests only, and deleting a profile is refused while a charter from it is waiting or
+active. Files a profile's commands read, such as set-up scripts beside it, are edited on the
+machine as before.
 
 A request can shorten the time and idle limits (`--hours`, `--idle-min`), which lowers the worst
 case.

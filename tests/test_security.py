@@ -100,7 +100,8 @@ def test_profile_step_timeouts_are_bounded(lab, tmp_path):
     ch, *_ = lab
     profile(tmp_path, "slow", extra='land = ["true"]\nland_timeout_min = 600\n')
     with pytest.raises(CharterError, match="land_timeout_min"):
-        ch.profiles()
+        ch.profile("slow")
+    assert "slow" not in ch.profiles()
 
 
 def test_landing_starts_early_enough_to_fit_the_time_limit(lab, tmp_path):

@@ -188,6 +188,9 @@ is listed on the host card and counts towards the host needing a look.
 The board's header links to `/prices`: current GPU prices per provider, their trend, and the run
 rate of live yachts. See [](yachts.md).
 
+It also links to `/profiles`, where a person with the admin role views, creates, edits and
+deletes charter profiles; see [](yachts.md).
+
 ## Roaming hosts
 
 A laptop that leaves the lab and dials back in over a VPN keeps its place on the board. To see at

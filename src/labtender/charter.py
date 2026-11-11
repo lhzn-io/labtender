@@ -36,9 +36,11 @@ Every transition is written to the audit trail.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
+import os
 import re
 import secrets
 import time
@@ -232,15 +234,51 @@ def check_bounds(max_hours: float, idle_min: float) -> None:
 
 
 def load_profiles(home: Path) -> dict[str, dict]:
-    """Charter profiles from ``$LABTENDER_HOME/charters/*.toml``."""
+    """Charter profiles from ``$LABTENDER_HOME/charters/*.toml``. A file that does not load is
+    left out (and logged) rather than taking every other profile with it; the profiles page
+    lists it with the reason."""
     out: dict[str, dict] = {}
     folder = home / "charters"
     if folder.is_dir():
         for f in sorted(folder.glob("*.toml")):
-            p = tomllib.loads(f.read_text(encoding="utf-8"))
-            p.setdefault("name", f.stem)
-            out[p["name"]] = check_profile(p)
+            try:
+                p = tomllib.loads(f.read_text(encoding="utf-8"))
+                p.setdefault("name", f.stem)
+                out[p["name"]] = check_profile(p)
+            except (tomllib.TOMLDecodeError, CharterError, OSError, UnicodeDecodeError) as e:
+                log.warning("charter profile %s does not load: %s", f.name, e)
     return out
+
+
+PROFILE_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+PROFILE_KEEP = 20  # earlier versions of each profile kept in charters/.history
+# What the open listing shows of a profile: never its commands.
+PROFILE_FIELDS = (
+    "description",
+    "plugin",
+    "accelerators",
+    "project",
+    "tier",
+    "max_hours",
+    "idle_min",
+    "launch_retry_min",
+)
+
+
+def parse_profile(text: str, name: str) -> dict:
+    """A profile's TOML, checked as the loader checks it, for a file named ``name``."""
+    try:
+        p = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise CharterError(f"not valid TOML: {e}") from None
+    p.setdefault("name", name)
+    if p["name"] != name:
+        raise CharterError(f"name = {p['name']!r} must match the profile's name, {name!r}")
+    return check_profile(p)
+
+
+def text_sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -346,10 +384,122 @@ class Charters:
 
     def profile(self, name: str) -> dict:
         p = self.profiles().get(name)
+        f = self.home / "charters" / f"{name}.toml"
+        if p is None and PROFILE_NAME.match(name) and f.is_file():
+            # Left out because it does not load: say why, not that it is missing.
+            try:
+                parse_profile(f.read_text(encoding="utf-8"), name)
+            except (OSError, UnicodeDecodeError) as e:
+                raise CharterError(f"profile {name} cannot be read: {e}") from None
         if p is None:
             have = ", ".join(sorted(self.profiles())) or "none yet"
             raise CharterError(f"no charter profile {name!r} (have: {have})")
         return p
+
+    # ---------------------------------------------------- profile files
+    #
+    # Profiles hold commands that run on this service's machine, so reading their source and
+    # changing them is for people with the admin role (the server checks); the public listing
+    # leaves the commands out. A charter keeps the profile as it was requested, so editing or
+    # deleting one never changes a charter already made from it.
+
+    def _profile_path(self, name: str) -> Path:
+        if not PROFILE_NAME.match(name):
+            raise CharterError(
+                "a profile name is 1 to 64 lowercase letters, digits, dots, dashes or"
+                " underscores, starting with a letter or digit"
+            )
+        return self.home / "charters" / f"{name}.toml"
+
+    def profile_files(self) -> list[dict]:
+        """Every profile file, loadable or not, so a broken one can be seen and fixed."""
+        out = []
+        folder = self.home / "charters"
+        busy = self._profiles_in_use()
+        for f in sorted(folder.glob("*.toml")) if folder.is_dir() else []:
+            row: dict = {"name": f.stem, "ok": True, "error": None, "in_use": busy.get(f.stem, [])}
+            try:
+                p = parse_profile(f.read_text(encoding="utf-8"), f.stem)
+                row |= {k: p[k] for k in PROFILE_FIELDS} | {"infra": p.get("infra", "")}
+            except (CharterError, OSError, UnicodeDecodeError) as e:
+                row |= {"ok": False, "error": str(e)}
+            out.append(row)
+        return out
+
+    def _profiles_in_use(self) -> dict[str, list[int]]:
+        busy: dict[str, list[int]] = {}
+        for c in self.charters(("requested", *ACTIVE)):
+            busy.setdefault(c["profile"], []).append(c["id"])
+        return busy
+
+    def profile_source(self, name: str) -> dict:
+        path = self._profile_path(name)
+        if not path.is_file():
+            raise CharterError(f"no charter profile {name!r}")
+        text = path.read_text(encoding="utf-8")
+        return {"name": name, "toml": text, "sha256": text_sha(text)}
+
+    def save_profile(self, name: str, text: str, actor: str, base_sha: str | None) -> dict:
+        """Create a profile (``base_sha`` None) or replace one (``base_sha`` the hash of the
+        version the editor started from, so a change made meanwhile is never overwritten).
+        The text must load as the loader loads it; the old version is kept in .history."""
+        path = self._profile_path(name)
+        p = parse_profile(text, name)
+        self.plugin(p["plugin"])  # an unknown plugin is refused now, not at the next quote
+        exists = path.is_file()
+        if base_sha is None and exists:
+            raise CharterError(f"profile {name} already exists; open it to edit it")
+        if base_sha is not None:
+            if not exists:
+                raise CharterError(f"profile {name} was deleted meanwhile")
+            if text_sha(path.read_text(encoding="utf-8")) != base_sha:
+                raise CharterError(f"profile {name} was changed meanwhile; reload it first")
+        if exists:
+            self._keep_version(path, "")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{name}.toml.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+        self.store.audit(
+            actor,
+            "profile.save",
+            f"profile/{name}",
+            created=not exists,
+            sha256=text_sha(text)[:12],
+            project=p["project"],
+        )
+        return {"name": name, "created": not exists, "sha256": text_sha(text)}
+
+    def delete_profile(self, name: str, actor: str) -> dict:
+        """Delete a profile no waiting or active charter came from; a copy stays in .history."""
+        path = self._profile_path(name)
+        if not path.is_file():
+            raise CharterError(f"no charter profile {name!r}")
+        busy = self._profiles_in_use().get(name)
+        if busy:
+            raise CharterError(
+                f"charters {', '.join(map(str, busy))} from profile {name} are waiting or active"
+            )
+        kept = self._keep_version(path, ".deleted")
+        path.unlink()
+        self.store.audit(actor, "profile.delete", f"profile/{name}", kept=kept.name)
+        return {"name": name, "kept": f"charters/.history/{kept.name}"}
+
+    def _keep_version(self, path: Path, suffix: str) -> Path:
+        """Copy a profile into charters/.history before it changes, keeping the newest few."""
+        history = path.parent / ".history"
+        history.mkdir(mode=0o700, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(self.now()))
+        dest = history / f"{path.stem}.{stamp}{suffix}.toml"
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(path.read_text(encoding="utf-8"))
+        old = sorted(history.glob(f"{path.stem}.[0-9]*.toml"))
+        for f in old[:-PROFILE_KEEP]:
+            f.unlink()
+        return dest
 
     def plugin(self, name: str) -> yachts.Plugin:
         if name not in self.plugins:

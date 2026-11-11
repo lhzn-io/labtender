@@ -75,6 +75,10 @@ missing role or a forced release by an agent, 404 for an unknown host, 409 for a
 | `POST /api/charters/{id}/end` | Withdraw a charter, or land and destroy its yacht now: body `reason` (the requester, or a purser). |
 | `GET /api/budgets` | Per project: limits, reserved spend per window, what is left, actual spend this month. |
 | `PUT /api/budgets/{project}` | Change limits (purser): any of `monthly_usd`, `per_charter_usd`, `daily_usd`, `weekly_usd`, `pre_max_hours`, `pre_idle_min`. |
+| `GET /api/charters/profile-files` | Every profile file with its main settings, whether it loads (and why not), and the waiting or active charters from it (a person with the admin role). |
+| `GET /api/charters/profiles/{name}/source` | A profile's TOML and its `sha256` (a person with the admin role). |
+| `PUT /api/charters/profiles/{name}` | Create (`base_sha256` null) or replace a profile with `toml` (a person with the admin role). 409 when it would not load, already exists, or changed since `base_sha256`. The old version is kept in `charters/.history`. |
+| `DELETE /api/charters/profiles/{name}` | Delete a profile, keeping a copy in `charters/.history` (a person with the admin role). 409 while a charter from it is waiting or active. |
 | `DELETE /api/budgets/{project}` | Delete a project's budget (purser). 409 while a profile charges the project or one of its charters is waiting or active. Returns `project` and `listed` (whether it stays listed, at the default limits, for its charters this month). |
 | `GET /api/prices` | Per watched GPU: providers with their cheapest region and price, whether they are launchable, and a 30-day trend; plus `run_rate` (`rate_usd_h`, `yachts`, `month_spent_usd`, `month_worst_case_usd`) and `sampled_at`. |
 | `POST /api/prices/refresh` | Quote every watched GPU now (operator); 429 if the last sample is under 10 minutes old. |
