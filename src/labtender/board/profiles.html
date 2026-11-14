@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labtender profiles</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  main { display: grid; gap: 12px; padding: 8px 16px 24px; grid-template-columns: 1fr; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font: 10.5px/1.5 var(--mono); }
+  th { text-align: left; color: var(--muted); font: 700 9px/1.4 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 6px 4px 0;
+       border-bottom: 1px solid var(--line); }
+  td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  tr.open td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .scroll { overflow-x: auto; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  .bad { color: var(--bad); } .busy { color: var(--warn); }
+  .err { color: var(--bad); font-size: 12px; white-space: pre-wrap; }
+  .ok { color: var(--ok); font-size: 12px; }
+  .empty { color: var(--muted); font-size: 12px; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 420px; font: 12px/1.45 var(--mono); padding: 8px;
+             border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); tab-size: 2; }
+  input[type=text] { font: 12px var(--mono); padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px;
+                     background: var(--panel); color: var(--ink); width: min(100%, 320px); }
+</style>
+<script src="/theme.js"></script>
+</head>
+<body>
+<div class="strip"><span class="meta" id="meta">loading</span><button class="theme-icon" data-theme-toggle></button></div>
+<header class="mast">
+  <a class="wordmark" href="/">labtender<span class="page">profiles</span></a>
+  <nav>
+  <a class="meta" href="/purser">purser</a>
+  <a class="meta" href="/prices">prices</a>
+  <a href="/">board</a></nav>
+</header>
+<main id="cards"></main>
+<script src="/auth.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+// A starting point for a new profile: the keys most profiles set, with the rest documented.
+const TEMPLATE = `description = ""
+plugin = "skypilot"
+accelerators = "L4:1"          # GPU type and count
+infra = ""                     # optional: a cloud, or cloud/region, to stay on
+max_hours = 4                  # time limit; the worst case is the rate times this
+idle_min = 20                  # idle limit
+project = "default"            # whose budget pays
+tier = "normal"
+launch_retry_min = 0           # keep trying a launch that found no capacity, up to this long
+launch_retry_every_min = 10
+
+# Commands run on the labtender service's machine; {ssh} is the yacht's SSH alias.
+bootstrap = []
+land = []
+`;
+
+let files = [];
+let editor = null;  // { name, toml, sha (null for a new profile), msg }
+
+async function call(method, path, body) {
+  const r = await ltFetch(path, { method, body: body ? JSON.stringify(body) : undefined }, "admin");
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+function listCard() {
+  const rows = files.map((f) => {
+    const use = f.in_use.length ? `<span class="busy">charter${f.in_use.length > 1 ? "s" : ""} ${f.in_use.join(", ")}</span>` : "";
+    const facts = f.ok
+      ? `<td>${esc(f.project)}</td><td>${esc(f.accelerators)}</td><td>${esc(f.plugin)}${f.infra ? ` ${esc(f.infra)}` : ""}</td>
+         <td class="num">${f.max_hours} h</td><td class="num">${f.idle_min} min</td><td class="num">${f.launch_retry_min ? `${f.launch_retry_min} min` : "off"}</td>`
+      : `<td colspan="6" class="bad">does not load: ${esc(f.error)}</td>`;
+    return `<tr class="${editor && editor.name === f.name ? "open" : ""}"><td><b>${esc(f.name)}</b>${f.ok && f.description ? `<div class="sub">${esc(f.description)}</div>` : ""}</td>
+      ${facts}<td>${use}</td>
+      <td style="white-space:nowrap"><button data-act="edit" data-name="${esc(f.name)}">Edit</button>
+      <button class="danger" data-act="delete" data-name="${esc(f.name)}"${f.in_use.length ? " disabled title=\"A charter from it is waiting or active\"" : ""}>Delete</button></td></tr>`;
+  }).join("");
+  const table = rows
+    ? `<div class="scroll"><table><thead><tr><th>profile</th><th>project</th><th>gpu</th><th>plugin</th><th class="num">time limit</th><th class="num">idle limit</th><th class="num">capacity retry</th><th>in use</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="empty">No profiles yet.</div>`;
+  return `<section class="card"><h2>Charter profiles</h2>
+    <div class="sub">Profiles hold commands that run on the labtender service's machine, so viewing and changing them needs a person with the admin role. A charter keeps its profile as it was when requested, so a change applies to new requests only. Earlier versions are kept in <code>charters/.history</code>. Deleting a profile is refused while a charter from it is waiting or active.</div>
+    ${table}
+    <div class="actions"><button class="primary" data-act="new">New profile</button></div></section>`;
+}
+
+function editorCard() {
+  if (!editor) return "";
+  const isNew = editor.sha == null;
+  const name = isNew
+    ? `<label class="sub">name <input type="text" id="pname" value="${esc(editor.name)}" placeholder="l4-any" spellcheck="false"></label>`
+    : `<b>${esc(editor.name)}</b>`;
+  const msg = editor.msg ? `<div class="${editor.msg.ok ? "ok" : "err"}">${esc(editor.msg.text)}</div>` : "";
+  return `<section class="card"><h2>${isNew ? "New profile" : "Edit profile"}</h2>
+    <div class="actions" style="margin:0 0 8px">${name}</div>
+    <textarea id="ptoml" spellcheck="false">${esc(editor.toml)}</textarea>
+    ${msg}
+    <div class="actions"><button class="primary" data-act="save">${isNew ? "Create" : "Save"}</button><button data-act="cancel">Close</button>
+    <span class="sub">Checked as labtender loads it before it is saved: TOML, limits, plugin and name.</span></div></section>`;
+}
+
+function render() {
+  // Keep what is being typed across a re-render.
+  const t = $("#ptoml"), n = $("#pname");
+  if (editor && t) editor.toml = t.value;
+  if (editor && n) editor.name = n.value.trim();
+  $("#cards").innerHTML = listCard() + editorCard();
+}
+
+async function load() {
+  const r = await call("GET", "/api/charters/profile-files");
+  if (!r.ok) {
+    $("#meta").textContent = r.status === 401 || r.status === 403 ? "profiles need a person with the admin role" : `could not load profiles (${r.data.detail || r.status})`;
+    $("#cards").innerHTML = `<section class="card"><div class="err">${esc(r.data.detail || "not allowed")}</div><div class="actions"><button data-act="reload">Try again</button></div></section>`;
+    return;
+  }
+  files = r.data;
+  $("#meta").textContent = `${files.length} profile${files.length === 1 ? "" : "s"} · updated ${new Date().toLocaleTimeString()}`;
+  render();
+}
+
+$("#cards").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  const act = b.dataset.act, name = b.dataset.name;
+  if (act === "reload") return load();
+  if (act === "new") {
+    editor = { name: "", toml: TEMPLATE, sha: null, msg: null };
+    render();
+    $("#pname").focus();
+  } else if (act === "edit") {
+    if (editor && editor.dirty && !confirm("Discard the changes in the editor?")) return;
+    const r = await call("GET", `/api/charters/profiles/${encodeURIComponent(name)}/source`);
+    if (!r.ok) { $("#meta").textContent = r.data.detail || "could not open it"; return; }
+    editor = { name, toml: r.data.toml, sha: r.data.sha256, msg: null };
+    render();
+    $("#ptoml").scrollIntoView({ block: "nearest" });
+  } else if (act === "cancel") {
+    if (editor && editor.dirty && !confirm("Discard the changes in the editor?")) return;
+    editor = null;
+    render();
+  } else if (act === "save") {
+    render();
+    if (!NAME.test(editor.name)) {
+      editor.msg = { ok: false, text: "A name is 1 to 64 lowercase letters, digits, dots, dashes or underscores, starting with a letter or digit." };
+      return render();
+    }
+    b.disabled = true;
+    const r = await call("PUT", `/api/charters/profiles/${encodeURIComponent(editor.name)}`, { toml: editor.toml, base_sha256: editor.sha });
+    if (r.ok) {
+      editor = { ...editor, sha: r.data.sha256, dirty: false, msg: { ok: true, text: r.data.created ? "Created." : "Saved." } };
+    } else {
+      editor.msg = { ok: false, text: r.data.detail || `refused (${r.status})` };
+    }
+    await load();
+  } else if (act === "delete") {
+    if (!confirm(`Delete profile ${name}? A copy is kept in charters/.history, and charters already made from it are not changed.`)) return;
+    const r = await call("DELETE", `/api/charters/profiles/${encodeURIComponent(name)}`);
+    if (!r.ok) { $("#meta").textContent = r.data.detail || "refused"; return; }
+    if (editor && editor.name === name) editor = null;
+    await load();
+  }
+});
+$("#cards").addEventListener("input", (ev) => {
+  if (editor && ev.target.id === "ptoml") {
+    editor.dirty = true;
+    if (editor.msg) { editor.msg = null; const m = ev.target.parentElement.querySelector(".ok, .err"); if (m) m.remove(); }
+  }
+});
+
+load();
+</script>
+</body>
+</html>
